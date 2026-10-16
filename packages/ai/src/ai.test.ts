@@ -43,6 +43,14 @@ describe("tutorTurn", () => {
     expect(r.replyText).toBe(SAFE_FALLBACK_REPLY.student);
   });
 
+  it("falhas da IA são reportadas (para aparecer nos logs do servidor)", async () => {
+    const reports: string[] = [];
+    const failing = { name: "down", complete: async () => { throw new Error("Provedor de IA respondeu 400: credit balance too low"); } };
+    await tutorTurn(failing, { ...base, variant: "student", userText: "hi" }, undefined, (stage, d) => reports.push(`${stage}:${d}`));
+    await tutorTurn(new MockProvider(() => "texto sem json"), { ...base, variant: "student", userText: "hi" }, undefined, (stage, d) => reports.push(`${stage}:${d}`));
+    expect(reports).toEqual(["provider:Provedor de IA respondeu 400: credit balance too low", "parse:texto sem json"]);
+  });
+
   it("provedor fora do ar não quebra a aula", async () => {
     const failing = { name: "down", complete: async () => { throw new Error("503"); } };
     const r = await tutorTurn(failing, { ...base, variant: "kids", userText: "hello" });

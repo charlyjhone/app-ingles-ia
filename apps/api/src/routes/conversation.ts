@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ConversationTurnRequest, type ConversationTurnResponse } from "@app/contracts";
-import { tutorTurn } from "@app/ai";
+import { CURRENT_PROMPT, tutorTurn } from "@app/ai";
 import { isEnabled } from "@app/flags";
 import type { Deps } from "../app";
 import { HttpError } from "../lib/errors";
@@ -33,13 +33,18 @@ export const conversationRoutes =
         throw new HttpError("quota_exceeded", "Você já praticou bastante hoje! Volte amanhã.");
       }
 
-      const result = await tutorTurn(deps.provider, {
-        variant,
-        scenario: body.scenario,
-        studentName: me.fullName.split(" ")[0] ?? "",
-        history: body.history,
-        userText: body.userText,
-      });
+      const result = await tutorTurn(
+        deps.provider,
+        {
+          variant,
+          scenario: body.scenario,
+          studentName: me.fullName.split(" ")[0] ?? "",
+          history: body.history,
+          userText: body.userText,
+        },
+        CURRENT_PROMPT,
+        (stage, detail) => req.log.warn({ stage, detail, provider: deps.provider.name }, "falha na IA do tutor"),
+      );
 
       await deps.repo.addConversationUsage({
         studentId: me.id,

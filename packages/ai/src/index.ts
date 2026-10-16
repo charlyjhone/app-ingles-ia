@@ -67,7 +67,11 @@ export class AnthropicProvider implements ConversationProvider {
           ],
         }),
       });
-      if (!res.ok) throw new Error(`Provedor de IA respondeu ${res.status}`);
+      if (!res.ok) {
+        // Mensagem de erro da Anthropic (ex.: crédito insuficiente, modelo inexistente). Nunca contém a chave.
+        const detail = await res.text().catch(() => "");
+        throw new Error(`Provedor de IA respondeu ${res.status}: ${detail.slice(0, 300)}`);
+      }
       const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
       return data.content?.find((c) => c.type === "text")?.text ?? "";
     } finally {
@@ -115,10 +119,14 @@ export interface TutorTurnResult {
   blocked: boolean;
 }
 
+/** Chamado quando a IA falha, para registrar o motivo nos logs do servidor. */
+export type TutorErrorReporter = (stage: "provider" | "parse", detail: string) => void;
+
 export async function tutorTurn(
   provider: ConversationProvider,
   input: TutorTurnInput,
   prompt: PromptVersion = CURRENT_PROMPT,
+  onError: TutorErrorReporter = () => {},
 ): Promise<TutorTurnResult> {
   const fallback = (blocked: boolean): TutorTurnResult => ({
     replyText: SAFE_FALLBACK_REPLY[input.variant],
@@ -137,13 +145,17 @@ export async function tutorTurn(
       history: input.history,
       userText: inbound.text,
     });
-  } catch {
+  } catch (e) {
     // Falha do provedor nunca derruba a aula: o aluno recebe uma fala segura.
+    onError("provider", e instanceof Error ? e.message : String(e));
     return fallback(false);
   }
 
   const parsed = parseModelOutput(raw);
-  if (!parsed) return fallback(false);
+  if (!parsed) {
+    onError("parse", raw.slice(0, 300));
+    return fallback(false);
+  }
 
   const outbound = checkText(parsed.reply, input.variant);
   if (!outbound.allowed) return fallback(true);
