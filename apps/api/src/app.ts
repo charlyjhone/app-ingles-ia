@@ -49,6 +49,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return reply.status(500).send(errorBody("internal", "Erro interno. Tente novamente."));
   });
 
+  app.get("/", async () => ({
+    servico: "API do App de Inglês com IA",
+    status: "no ar",
+    versao: deps.config.version,
+    observacao: "Este endereço é usado pelos apps. Verificação de saúde: /health",
+  }));
   app.get("/health", async () => ({ ok: true, version: deps.config.version }));
 
   // Tudo dentro de /v1 exige login. Uma futura /v2 é registrada AO LADO, sem tocar nesta.

@@ -85,6 +85,12 @@ describe("saúde e autenticação", () => {
     expect(res.json()).toEqual({ ok: true, version: "test" });
   });
 
+  it("endereço principal mostra que o serviço está no ar (sem dados sensíveis)", async () => {
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("no ar");
+  });
+
   it("sem token → 401", async () => {
     expect((await call("GET", "/v1/me")).status).toBe(401);
   });
