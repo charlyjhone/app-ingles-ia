@@ -35,7 +35,14 @@ describe("tutorTurn", () => {
     const r = await tutorTurn(provider, { ...base, variant: "student", userText: "I want a hamburguer" });
     expect(r.replyText).toBe("Great choice!");
     expect(r.corrections).toHaveLength(1);
-    expect(r.promptVersion).toBe("conversation-v1");
+    expect(r.promptVersion).toBe("conversation-v2");
+  });
+
+  it("resposta cortada no meio (limite de tamanho) ainda aproveita a fala do tutor", async () => {
+    const truncated = '{"reply": "Okay, one soda for you. What would you like to eat?", "corrections": [{"original": "How would you like to drink a soda?", "suggestion": "I would like a so';
+    const r = await tutorTurn(new MockProvider(() => truncated), { ...base, variant: "student", userText: "a soda" });
+    expect(r.replyText).toBe("Okay, one soda for you. What would you like to eat?");
+    expect(r.corrections).toEqual([]);
   });
 
   it("modelo devolvendo lixo não quebra a aula", async () => {
@@ -90,6 +97,7 @@ describe("avaliação dos prompts (roda para toda versão registrada)", () => {
         expect(text).toMatch(/Nunca peça dados pessoais/);
         expect(text).toMatch(/adulto de confiança/);
         expect(text).toMatch(/"reply"/);
+        if (prompt.id !== "conversation-v1") expect(text).toMatch(/no máximo os 2 erros/);
       }
     });
   }

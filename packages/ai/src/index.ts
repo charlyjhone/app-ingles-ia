@@ -59,7 +59,7 @@ export class AnthropicProvider implements ConversationProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          max_tokens: 400,
+          max_tokens: 1024,
           system: req.system,
           messages: [
             ...req.history.map((m) => ({ role: m.role, content: m.text })),
@@ -171,10 +171,20 @@ export async function tutorTurn(
 function parseModelOutput(raw: string): z.infer<typeof ModelOutput> | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
+  if (start !== -1 && end > start) {
+    try {
+      const result = ModelOutput.safeParse(JSON.parse(raw.slice(start, end + 1)));
+      if (result.success) return result.data;
+    } catch {
+      /* resposta incompleta: tenta recuperar só a fala abaixo */
+    }
+  }
+  // Resposta cortada no meio: aproveita a fala do tutor (vem primeiro) e descarta as correções.
+  const m = raw.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!m) return null;
   try {
-    const result = ModelOutput.safeParse(JSON.parse(raw.slice(start, end + 1)));
-    return result.success ? result.data : null;
+    const reply = JSON.parse(`"${m[1]}"`) as string;
+    return reply.trim() ? { reply, corrections: [] } : null;
   } catch {
     return null;
   }

@@ -40,5 +40,25 @@ export const PROMPT_V1: PromptVersion = {
   },
 };
 
-export const PROMPTS = { [PROMPT_V1.id]: PROMPT_V1 } as const;
-export const CURRENT_PROMPT = PROMPT_V1;
+/**
+ * v2 — mesma persona e mesmas regras de segurança da v1, mais:
+ * conversa natural (responde ao que o aluno disse antes de seguir o cenário)
+ * e correções curtas (no máximo 2 por mensagem), para a resposta não ser cortada.
+ */
+const CONVERSATION_RULES = `
+Regras da conversa:
+- Responda primeiro ao que o aluno realmente disse (pergunta, comentário, piada), de forma natural, e só depois conduza de volta ao cenário.
+- Sua fala ("reply") deve ter no máximo 3 frases curtas.
+- Corrija no máximo os 2 erros mais importantes da ÚLTIMA mensagem do aluno. Não corrija mensagens antigas.
+- Cada "explanationPt" deve ter no máximo 1 frase curta em português.`;
+
+export const PROMPT_V2: PromptVersion = {
+  id: "conversation-v2",
+  build(input) {
+    const v1 = PROMPT_V1.build(input);
+    return v1.replace(OUTPUT_RULES, CONVERSATION_RULES + "\n" + OUTPUT_RULES);
+  },
+};
+
+export const PROMPTS = { [PROMPT_V1.id]: PROMPT_V1, [PROMPT_V2.id]: PROMPT_V2 } as const;
+export const CURRENT_PROMPT = PROMPT_V2;
