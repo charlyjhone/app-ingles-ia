@@ -1,0 +1,83 @@
+# Blueprint do Render. Dois ambientes separados: staging (testa) e produção.
+# Produção só recebe deploy quando a main passa no CI.
+# Rollback: no painel do Render, "Rollback" para o deploy anterior (minutos).
+services:
+  - type: web
+    name: ingles-ia-api-staging
+    runtime: node
+    region: oregon
+    plan: starter
+    branch: staging
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @app/api build
+    startCommand: node apps/api/dist/server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AI_PROVIDER
+        value: mock
+      - fromGroup: ingles-ia-staging
+
+  - type: web
+    name: ingles-ia-api
+    runtime: node
+    region: oregon
+    plan: standard
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @app/api build
+    startCommand: node apps/api/dist/server.js
+    # Se /health não responder, o Render NÃO troca a versão: a anterior continua no ar.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - fromGroup: ingles-ia-producao
+
+  # App do aluno no computador (laboratório da escola): o mesmo app do celular, no navegador.
+  - type: web
+    name: ingles-ia-aluno-web
+    runtime: static
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @app/mobile build:web
+    staticPublishPath: apps/mobile/dist-web
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+    envVars:
+      - key: EXPO_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: EXPO_PUBLIC_API_URL
+        sync: false
+
+envVarGroups:
+  - name: ingles-ia-staging
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+  - name: ingles-ia-producao
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

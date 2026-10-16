@@ -1,0 +1,6 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Recomendado pelo Expo para monorepos com pnpm (o empacotador do app precisa de node_modules plano).
+nodeLinker: hoisted

@@ -1,0 +1,63 @@
+# Roda em TODO pull request e em todo push na main.
+# Com a proteção de branch ligada (ver docs/MUDANCAS-SEGURAS.md),
+# nada entra na main se qualquer etapa falhar.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Migrações, tipos e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Trava de migrações (sem edição de migração antiga, sem comando destrutivo, RLS obrigatória)
+        run: pnpm check:migrations
+      - name: Checagem de tipos (apps, painel, backend e pacotes)
+        run: pnpm typecheck
+      - name: Testes (unidade, API, contratos, segurança da IA)
+        run: pnpm test
+      - name: Build do backend
+        run: pnpm --filter @app/api build
+      - name: Build do painel web
+        run: pnpm --filter @app/web build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Build do app do aluno para computador (versão web)
+        run: pnpm --filter @app/mobile build:web
+        env:
+          CI: "1"
+
+  banco:
+    name: Banco de dados e segurança (RLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aplicar todas as migrações do zero e rodar os testes de RLS
+        run: bash scripts/db-test.sh
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres

@@ -1,0 +1,26 @@
+{
+  "name": "@app/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@app/api-client": "workspace:*",
+    "@app/contracts": "workspace:*",
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.47.10",
+    "next": "15.3.4",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.8",
+    "@types/react-dom": "^19.1.6"
+  }
+}
