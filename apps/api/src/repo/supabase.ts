@@ -107,6 +107,16 @@ export class SupabaseRepo implements Repo {
     if (error) throw error;
   }
 
+  async hasXpEvent(studentId: string, reason: string) {
+    const { count, error } = await this.admin
+      .from("xp_events")
+      .select("id", { count: "exact", head: true })
+      .eq("student_id", studentId)
+      .eq("reason", reason);
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  }
+
   async getClassSummary(classId: string, _requester: Me, accessToken: string): Promise<ClassSummary | null> {
     const db = this.asUser(accessToken); // RLS aplicada
     const { data: cls } = await db.from("classes").select("id, name").eq("id", classId).maybeSingle();

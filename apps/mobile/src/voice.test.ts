@@ -20,3 +20,13 @@ describe("voz", () => {
     expect(friendlyListenError("qualquer")).toMatch(/digite/);
   });
 });
+
+describe("speechRate", () => {
+  it("mais devagar para crianças e iniciantes", async () => {
+    const { speechRate } = await import("./voice");
+    expect(speechRate({ kids: true, level: "advanced" })).toBe(0.85);
+    expect(speechRate({ level: "beginner" })).toBe(0.85);
+    expect(speechRate({ level: "intermediate" })).toBe(0.95);
+    expect(speechRate({ level: "advanced" })).toBe(1.0);
+  });
+});

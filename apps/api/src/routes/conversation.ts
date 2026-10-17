@@ -1,5 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { ConversationTurnRequest, type ConversationTurnResponse } from "@app/contracts";
+import {
+  ConversationTurnRequest,
+  DEFAULT_SCENARIO_ID,
+  LEGACY_SCENARIO_ALIASES,
+  MISSION_XP,
+  getScenario,
+  type ConversationTurnResponse,
+} from "@app/contracts";
 import { CURRENT_PROMPT, tutorTurn } from "@app/ai";
 import { isEnabled } from "@app/flags";
 import type { Deps } from "../app";
@@ -33,14 +40,22 @@ export const conversationRoutes =
         throw new HttpError("quota_exceeded", "Você já praticou bastante hoje! Volte amanhã.");
       }
 
+      // Só cenários do catálogo do servidor: o texto que vai para a IA nunca vem do aparelho.
+      const requested = LEGACY_SCENARIO_ALIASES[body.scenario] ?? body.scenario;
+      const scenario = getScenario(requested) ?? getScenario(DEFAULT_SCENARIO_ID[variant])!;
+
       const result = await tutorTurn(
         deps.provider,
         {
           variant,
-          scenario: body.scenario,
+          scenario: scenario.titlePt,
           studentName: me.fullName.split(" ")[0] ?? "",
           history: body.history,
           userText: body.userText,
+          level: body.level,
+          roleEn: scenario.roleEn,
+          missionEn: scenario.mission?.en ?? null,
+          openerEn: scenario.openerEn,
         },
         CURRENT_PROMPT,
         (stage, detail) => req.log.warn({ stage, detail, provider: deps.provider.name }, "falha na IA do tutor"),
@@ -53,10 +68,18 @@ export const conversationRoutes =
         dayKey,
         seconds: body.spokenSeconds,
       });
+      let xpAwarded = 0;
       if (result.blocked) {
         await deps.repo.audit({ actorId: me.id, schoolId: me.schoolId, action: "conversation.blocked" });
       } else {
         await deps.repo.addXp({ studentId: me.id, schoolId: me.schoolId, amount: 5, reason: "conversation_turn" });
+        xpAwarded += 5;
+        // Missão: paga uma única vez por conversa (sessionId), mesmo que a IA repita "cumprida".
+        const missionReason = `mission:${scenario.id}:${body.sessionId}`;
+        if (result.missionCompleted && !(await deps.repo.hasXpEvent(me.id, missionReason))) {
+          await deps.repo.addXp({ studentId: me.id, schoolId: me.schoolId, amount: MISSION_XP, reason: missionReason });
+          xpAwarded += MISSION_XP;
+        }
       }
 
       return {
@@ -65,6 +88,8 @@ export const conversationRoutes =
         minutesUsedToday: (usedSec + body.spokenSeconds) / 60,
         minutesLimitToday: limitMin,
         promptVersion: result.promptVersion,
+        missionCompleted: result.missionCompleted,
+        xpAwarded,
       };
     });
   };

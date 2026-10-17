@@ -3,6 +3,7 @@ import {
   AnthropicProvider,
   MockProvider,
   PROMPTS,
+  PROMPT_V3,
   SAFE_FALLBACK_REPLY,
   checkText,
   createProvider,
@@ -35,7 +36,7 @@ describe("tutorTurn", () => {
     const r = await tutorTurn(provider, { ...base, variant: "student", userText: "I want a hamburguer" });
     expect(r.replyText).toBe("Great choice!");
     expect(r.corrections).toHaveLength(1);
-    expect(r.promptVersion).toBe("conversation-v2");
+    expect(r.promptVersion).toBe("conversation-v3");
   });
 
   it("resposta cortada no meio (limite de tamanho) ainda aproveita a fala do tutor", async () => {
@@ -101,6 +102,37 @@ describe("avaliação dos prompts (roda para toda versão registrada)", () => {
       }
     });
   }
+});
+
+describe("cenários, níveis e missões (v3)", () => {
+  const mission = { roleEn: "a friendly waiter at Bella Pizza", missionEn: "order a drink and a dish" };
+
+  it("instruções incluem papel, nível e missão", () => {
+    const text = PROMPT_V3.build({ ...base, variant: "student", level: "advanced", ...mission });
+    expect(text).toMatch(/a friendly waiter at Bella Pizza/);
+    expect(text).toMatch(/AVANÇADO/);
+    expect(text).toMatch(/order a drink and a dish/);
+    expect(text).toMatch(/missionCompleted/);
+  });
+
+  it("missão cumprida é repassada quando o cenário tem missão", async () => {
+    const provider = new MockProvider(() => JSON.stringify({ reply: "Enjoy!", corrections: [], missionCompleted: true }));
+    const r = await tutorTurn(provider, { ...base, variant: "student", userText: "How much?", ...mission });
+    expect(r.missionCompleted).toBe(true);
+  });
+
+  it("conversa livre nunca conta missão, mesmo se o modelo disser que sim", async () => {
+    const provider = new MockProvider(() => JSON.stringify({ reply: "Cool!", corrections: [], missionCompleted: true }));
+    const r = await tutorTurn(provider, { ...base, variant: "student", userText: "Hi", missionEn: null });
+    expect(r.missionCompleted).toBe(false);
+  });
+
+  it("resposta sem o campo novo (modelo antigo) continua funcionando", async () => {
+    const provider = new MockProvider(() => JSON.stringify({ reply: "Hello!", corrections: [] }));
+    const r = await tutorTurn(provider, { ...base, variant: "student", userText: "Hi", ...mission });
+    expect(r.replyText).toBe("Hello!");
+    expect(r.missionCompleted).toBe(false);
+  });
 });
 
 describe("seleção de provedor", () => {

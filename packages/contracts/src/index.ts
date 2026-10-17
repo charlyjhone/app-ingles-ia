@@ -8,6 +8,9 @@
  *   e uma rota /v2, mantendo a /v1 viva até todos os apps atualizarem.
  */
 import { z } from "zod";
+import { Level } from "./scenarios";
+
+export * from "./scenarios";
 
 export const API_VERSION = "v1" as const;
 
@@ -41,6 +44,8 @@ export const ConversationTurnRequest = z.object({
   userText: z.string().min(1).max(1000),
   /** segundos de fala gastos neste turno (para controle de custo) */
   spokenSeconds: z.number().int().min(0).max(600).default(0),
+  /** nível escolhido pelo aluno (adicionado depois da v1: opcional, padrão iniciante) */
+  level: Level.default("beginner"),
 });
 export type ConversationTurnRequest = z.infer<typeof ConversationTurnRequest>;
 
@@ -57,6 +62,9 @@ export const ConversationTurnResponse = z.object({
   minutesUsedToday: z.number(),
   minutesLimitToday: z.number(),
   promptVersion: z.string(),
+  /** adicionados depois da v1 (opcionais): missão do cenário cumprida e pontos ganhos neste turno */
+  missionCompleted: z.boolean().optional(),
+  xpAwarded: z.number().int().optional(),
 });
 export type ConversationTurnResponse = z.infer<typeof ConversationTurnResponse>;
 

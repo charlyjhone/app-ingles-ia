@@ -30,6 +30,8 @@ export interface Repo {
   updateReviewItem(item: StoredReviewItem): Promise<void>;
 
   addXp(e: { studentId: string; schoolId: string; amount: number; reason: string }): Promise<void>;
+  /** Já existe ponto com este motivo? (evita pagar a mesma missão duas vezes) */
+  hasXpEvent(studentId: string, reason: string): Promise<boolean>;
 
   /** Devolve null se o solicitante NÃO pode ver a turma (o banco também barra via RLS). */
   getClassSummary(classId: string, requester: Me, accessToken: string): Promise<ClassSummary | null>;

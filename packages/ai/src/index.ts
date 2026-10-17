@@ -5,7 +5,7 @@
  * Nenhum app, rota ou tela precisa mudar.
  */
 import { z } from "zod";
-import type { AppVariant, ChatMessage, Correction } from "@app/contracts";
+import type { AppVariant, ChatMessage, Correction, Level } from "@app/contracts";
 import { CURRENT_PROMPT, type PromptVersion } from "./prompts";
 import { SAFE_FALLBACK_REPLY, checkText } from "./safety";
 
@@ -102,6 +102,7 @@ const ModelOutput = z.object({
   corrections: z
     .array(z.object({ original: z.string(), suggestion: z.string(), explanationPt: z.string() }))
     .default([]),
+  missionCompleted: z.boolean().default(false),
 });
 
 export interface TutorTurnInput {
@@ -110,6 +111,10 @@ export interface TutorTurnInput {
   studentName: string;
   history: ChatMessage[];
   userText: string;
+  level?: Level;
+  roleEn?: string;
+  missionEn?: string | null;
+  openerEn?: string;
 }
 
 export interface TutorTurnResult {
@@ -117,6 +122,7 @@ export interface TutorTurnResult {
   corrections: Correction[];
   promptVersion: string;
   blocked: boolean;
+  missionCompleted: boolean;
 }
 
 /** Chamado quando a IA falha, para registrar o motivo nos logs do servidor. */
@@ -133,6 +139,7 @@ export async function tutorTurn(
     corrections: [],
     promptVersion: prompt.id,
     blocked,
+    missionCompleted: false,
   });
 
   const inbound = checkText(input.userText, input.variant);
@@ -165,6 +172,8 @@ export async function tutorTurn(
     corrections: input.variant === "kids" ? [] : parsed.corrections,
     promptVersion: prompt.id,
     blocked: false,
+    // Sem missão no cenário, nunca conta como cumprida (mesmo que o modelo diga que sim).
+    missionCompleted: Boolean(input.missionEn) && parsed.missionCompleted,
   };
 }
 
@@ -184,7 +193,7 @@ function parseModelOutput(raw: string): z.infer<typeof ModelOutput> | null {
   if (!m) return null;
   try {
     const reply = JSON.parse(`"${m[1]}"`) as string;
-    return reply.trim() ? { reply, corrections: [] } : null;
+    return reply.trim() ? { reply, corrections: [], missionCompleted: false } : null;
   } catch {
     return null;
   }

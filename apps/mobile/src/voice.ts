@@ -18,9 +18,17 @@ export function toSpokenSeconds(ms: number): number {
 
 /* ---------------- Falar (tutor → aluno) ---------------- */
 
-export function speak(text: string, opts: { kids?: boolean } = {}) {
+/** Velocidade da voz: mais devagar para crianças e para quem está começando. */
+export function speechRate(opts: { kids?: boolean; level?: string }): number {
+  if (opts.kids) return 0.85;
+  if (opts.level === "beginner") return 0.85;
+  if (opts.level === "advanced") return 1.0;
+  return 0.95;
+}
+
+export function speak(text: string, opts: { kids?: boolean; level?: string } = {}) {
   Speech.stop();
-  Speech.speak(text, { language: "en-US", rate: opts.kids ? 0.85 : 0.95, pitch: opts.kids ? 1.15 : 1.0 });
+  Speech.speak(text, { language: "en-US", rate: speechRate(opts), pitch: opts.kids ? 1.15 : 1.0 });
 }
 
 export function stopSpeaking() {

@@ -43,6 +43,9 @@ export class InMemoryRepo implements Repo {
   async addXp(e: { studentId: string; amount: number; reason: string }) {
     this.xp.push({ ...e, at: new Date() });
   }
+  async hasXpEvent(studentId: string, reason: string) {
+    return this.xp.some((x) => x.studentId === studentId && x.reason === reason);
+  }
   async getClassSummary(classId: string, requester: Me): Promise<ClassSummary | null> {
     const c = this.classes.get(classId);
     if (!c || c.schoolId !== requester.schoolId) return null;

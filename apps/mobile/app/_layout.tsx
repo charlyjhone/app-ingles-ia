@@ -46,6 +46,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ title: kids ? "Vamos brincar!" : "Inglês com IA" }} />
+        <Stack.Screen name="cenarios" options={{ title: kids ? "Do que vamos brincar?" : "Escolha a conversa" }} />
         <Stack.Screen name="conversa" options={{ title: "Conversa" }} />
         <Stack.Screen name="revisao" options={{ title: "Revisão" }} />
       </Stack>

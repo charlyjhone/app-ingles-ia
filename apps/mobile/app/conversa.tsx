@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ApiClientError } from "@app/api-client";
-import type { ChatMessage, Correction } from "@app/contracts";
+import {
+  DEFAULT_SCENARIO_ID,
+  LEVEL_LABEL_PT,
+  Level,
+  MISSION_XP,
+  getScenario,
+  type ChatMessage,
+  type Correction,
+} from "@app/contracts";
 import { ENV } from "../src/env";
 import { api } from "../src/services";
 import {
@@ -20,11 +29,19 @@ type Phase = "idle" | "listening" | "sending";
 
 export default function Conversa() {
   const kids = ENV.variant === "kids";
+  const params = useLocalSearchParams<{ scenario?: string; level?: string }>();
+  const scenario = getScenario(params.scenario) ?? getScenario(DEFAULT_SCENARIO_ID[kids ? "kids" : "student"])!;
+  const level = Level.catch("beginner").parse(params.level);
+  const voice = { kids, level };
   const sessionId = useRef(newId()).current;
   const listenRef = useRef<ListenSession | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
-  const [history, setHistory] = useState<ChatMessage[]>([]);
+  // A primeira fala do tutor aparece na tela; o servidor já sabe dela (não vai no histórico enviado).
+  const opener: ChatMessage = { role: "assistant", text: scenario.openerEn };
+  const [history, setHistory] = useState<ChatMessage[]>([opener]);
+  const [missionDone, setMissionDone] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [text, setText] = useState("");
   const [partial, setPartial] = useState("");
@@ -33,7 +50,12 @@ export default function Conversa() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const micAvailable = canListen();
 
-  // Ao sair da tela: para de ouvir e de falar.
+  // Ao abrir: o tutor fala a primeira frase. Ao sair: para de ouvir e de falar.
+  useEffect(() => {
+    const t = setTimeout(() => speak(scenario.openerEn, voice), 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(
     () => () => {
       listenRef.current?.cancel();
@@ -52,15 +74,20 @@ export default function Conversa() {
     try {
       const r = await api.conversationTurn({
         sessionId,
-        scenario: kids ? "colors and animals" : "restaurant",
-        history: history.slice(-20),
+        scenario: scenario.id,
+        level,
+        history: history.slice(1).slice(-20),
         userText: clean,
         spokenSeconds,
       });
       setHistory((h) => [...h, { role: "assistant", text: r.replyText }]);
       setCorrections(r.corrections);
       setText("");
-      if (autoSpeak) speak(r.replyText, { kids });
+      if (autoSpeak) speak(r.replyText, voice);
+      if (r.missionCompleted && !missionDone) {
+        setMissionDone(true);
+        if ((r.xpAwarded ?? 0) >= MISSION_XP) setCelebrate(true);
+      }
     } catch (e) {
       setHistory((h) => h.slice(0, -1)); // devolve a fala para o aluno tentar de novo
       if (!spokenSeconds) setText(clean);
@@ -102,7 +129,26 @@ export default function Conversa() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ title: `${scenario.emoji} ${scenario.titlePt}` }} />
+      {scenario.mission && (
+        <View style={StyleSheet.flatten([styles.missionCard, missionDone && styles.missionCardDone])}>
+          <Text style={styles.missionText}>
+            {missionDone ? "✅ " : "🎯 "}
+            <Text style={{ fontWeight: "600" }}>{missionDone ? "Missão cumprida: " : "Sua missão: "}</Text>
+            {scenario.mission.pt}
+          </Text>
+        </View>
+      )}
+      {celebrate && (
+        <Pressable onPress={() => setCelebrate(false)} style={styles.banner} accessibilityRole="alert">
+          <Text style={styles.bannerText}>
+            🏆 {kids ? "Muito bem! Você conseguiu!" : "Missão cumprida!"} +{MISSION_XP} pontos
+          </Text>
+          <Text style={styles.bannerHint}>Pode continuar conversando ou escolher outra situação.</Text>
+        </Pressable>
+      )}
       <View style={styles.toolbar}>
+        {!kids && <Text style={styles.levelTag}>Nível: {LEVEL_LABEL_PT[level]}</Text>}
         <Pressable
           onPress={() => {
             if (autoSpeak) stopSpeaking();
@@ -119,18 +165,20 @@ export default function Conversa() {
         ref={listRef}
         data={history}
         keyExtractor={(_, i) => String(i)}
-        ListEmptyComponent={
+        ListFooterComponent={
+          history.length > 1 ? null : (
           <Text style={styles.empty}>
             {micAvailable
               ? kids
-                ? "Toque no microfone e diga: Hello!"
-                : "Toque no microfone e diga \"Hello!\" para começar. Você também pode digitar."
-              : "Digite em inglês para começar."}
+                ? "Toque no microfone e responda!"
+                : "Toque no microfone e responda em inglês. Você também pode digitar."
+              : "Digite sua resposta em inglês."}
           </Text>
+          )
         }
         renderItem={({ item }) =>
           item.role === "assistant" ? (
-            <Pressable onPress={() => speak(item.text, { kids })} accessibilityHint="Toque para ouvir de novo">
+            <Pressable onPress={() => speak(item.text, voice)} accessibilityHint="Toque para ouvir de novo">
               <Text style={[styles.bubble, styles.bot]}>
                 {item.text} <Text style={styles.replay}>🔊</Text>
               </Text>
@@ -192,9 +240,16 @@ export default function Conversa() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
-  toolbar: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 6 },
+  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 },
+  levelTag: { color: "#555555", fontSize: 13 },
+  missionCard: { backgroundColor: "#EEF2FF", borderRadius: 12, padding: 12, marginBottom: 8 },
+  missionCardDone: { backgroundColor: "#E3F6E8" },
+  missionText: { fontSize: 15, color: "#1F2A4D" },
+  banner: { backgroundColor: "#FFF1C2", borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: "#F2C94C" },
+  bannerText: { fontSize: 18, fontWeight: "700", color: "#6B4E00", textAlign: "center" },
+  bannerHint: { fontSize: 13, color: "#6B4E00", textAlign: "center", marginTop: 4 },
   toolbarText: { color: "#2F5BEA", fontSize: 14 },
-  empty: { textAlign: "center", color: "#666666", marginTop: 40, fontSize: 16, paddingHorizontal: 16 },
+  empty: { textAlign: "center", color: "#666666", marginTop: 20, fontSize: 16, paddingHorizontal: 16 },
   bubble: { padding: 12, borderRadius: 12, marginVertical: 4, maxWidth: "85%", fontSize: 16 },
   user: { alignSelf: "flex-end", backgroundColor: "#DCE6FF" },
   bot: { alignSelf: "flex-start", backgroundColor: "#F1F1F1" },

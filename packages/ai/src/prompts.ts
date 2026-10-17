@@ -3,13 +3,19 @@
  * nunca editar uma versão em produção. Os testes de avaliação
  * (prompts.test.ts) rodam no CI para toda versão registrada.
  */
-import type { AppVariant } from "@app/contracts";
+import type { AppVariant, Level } from "@app/contracts";
 
 export interface PromptInput {
   variant: AppVariant;
   scenario: string;
   studentName: string;
   levelHint?: string;
+  /** A partir da v3: vindos do catálogo de cenários do servidor (nunca do aparelho). */
+  level?: Level;
+  roleEn?: string;
+  missionEn?: string | null;
+  /** primeira fala do tutor, já mostrada ao aluno ao abrir a conversa */
+  openerEn?: string;
 }
 
 export interface PromptVersion {
@@ -60,5 +66,40 @@ export const PROMPT_V2: PromptVersion = {
   },
 };
 
-export const PROMPTS = { [PROMPT_V1.id]: PROMPT_V1, [PROMPT_V2.id]: PROMPT_V2 } as const;
-export const CURRENT_PROMPT = PROMPT_V2;
+/**
+ * v3 — cenários do catálogo (papel do tutor), nível do aluno e missão.
+ * Mantém as regras de segurança e de conversa da v2 e acrescenta "missionCompleted" na saída.
+ */
+const LEVEL_GUIDE: Record<Level, string> = {
+  beginner:
+    "Nível INICIANTE: palavras muito comuns, frases curtas e simples, presente simples. Se o aluno travar, dê um exemplo de resposta.",
+  intermediate:
+    "Nível INTERMEDIÁRIO: vocabulário do dia a dia, frases completas, pode usar passado e futuro.",
+  advanced:
+    "Nível AVANÇADO: fale de forma natural como um nativo, com expressões idiomáticas comuns, e desafie o aluno com perguntas abertas.",
+};
+
+const OUTPUT_RULES_V3 = `
+Responda SOMENTE com JSON válido neste formato:
+{"reply": "<sua fala em inglês>", "corrections": [{"original": "...", "suggestion": "...", "explanationPt": "..."}], "missionCompleted": false}
+Se o aluno não errou nada, use "corrections": [].
+"missionCompleted" é true SOMENTE quando, somando toda a conversa, o aluno já cumpriu a missão inteira.`;
+
+export const PROMPT_V3: PromptVersion = {
+  id: "conversation-v3",
+  build({ variant, scenario, studentName, level = "beginner", roleEn, missionEn, openerEn }) {
+    const role = roleEn ?? scenario;
+    const persona =
+      variant === "kids"
+        ? `Você é ${role}. Converse em inglês MUITO simples com uma criança de 2 a 5 anos chamada ${studentName}. Frases de no máximo 6 palavras. Muito incentivo. Sem correções formais: repita a forma certa com carinho.`
+        : `Você é ${role}. Você conversa com ${studentName}, aluno do ensino fundamental/médio que está aprendendo inglês. Fique no seu papel, de forma natural, e faça uma pergunta por vez.\n${LEVEL_GUIDE[level]}`;
+    const mission = missionEn
+      ? `Missão do aluno nesta conversa: ${missionEn}. Conduza a conversa para que ele consiga cumprir a missão, sem fazer por ele.`
+      : "Conversa livre: não há missão; use sempre \"missionCompleted\": false.";
+    const opener = openerEn ? `Você já abriu a conversa dizendo: "${openerEn}". Continue a partir daí.` : "";
+    return [persona, mission, opener, SAFETY_RULES, CONVERSATION_RULES, OUTPUT_RULES_V3].filter(Boolean).join("\n");
+  },
+};
+
+export const PROMPTS = { [PROMPT_V1.id]: PROMPT_V1, [PROMPT_V2.id]: PROMPT_V2, [PROMPT_V3.id]: PROMPT_V3 } as const;
+export const CURRENT_PROMPT = PROMPT_V3;
