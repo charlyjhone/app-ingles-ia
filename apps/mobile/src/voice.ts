@@ -26,14 +26,87 @@ export function speechRate(opts: { kids?: boolean; level?: string }): number {
   return 0.95;
 }
 
-export function speak(text: string, opts: { kids?: boolean; level?: string } = {}) {
-  Speech.stop();
-  Speech.speak(text, { language: "en-US", rate: speechRate(opts), pitch: opts.kids ? 1.15 : 1.0 });
+export interface SpeakOptions {
+  kids?: boolean;
+  level?: string;
+  /** áudio de voz natural vindo do servidor (preferido quando existe) */
+  audio?: { mime: string; base64: string } | null;
+}
+
+interface VoiceLike {
+  name: string;
+  lang: string;
+  localService?: boolean;
+}
+
+/**
+ * Entre as vozes instaladas no aparelho, escolhe a que soa mais humana.
+ * As vozes "Natural/Neural/Premium/Enhanced" e as do Google são bem melhores
+ * que a voz padrão do sistema (que é a "robótica").
+ */
+export function pickBestVoice<V extends VoiceLike>(voices: readonly V[]): V | null {
+  const english = voices.filter((v) => /^en[-_]/i.test(v.lang) || v.lang.toLowerCase() === "en");
+  if (!english.length) return null;
+  const score = (v: V) => {
+    const n = v.name.toLowerCase();
+    let s = 0;
+    if (/natural|neural/.test(n)) s += 100;
+    if (/premium|enhanced/.test(n)) s += 80;
+    if (/google/.test(n)) s += 60;
+    if (/(aria|jenny|ava|emma|samantha|allison|joanna|guy|andrew|brian)/.test(n)) s += 30;
+    if (/^en[-_]us/i.test(v.lang)) s += 20;
+    if (/(compact|espeak|novelty|whisper|zarvox|bells|bad news|trinoids|albert|jester|organ|cellos|bubbles|boing)/.test(n)) s -= 200;
+    return s;
+  };
+  return [...english].sort((a, b) => score(b) - score(a))[0] ?? null;
+}
+
+let currentAudio: { pause(): void } | null = null;
+
+function webSynth(): SpeechSynthesis | null {
+  if (Platform.OS !== "web" || typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  return window.speechSynthesis;
+}
+
+/** Fala o texto: voz natural do servidor se houver; senão, a melhor voz do aparelho. */
+export function speak(text: string, opts: SpeakOptions = {}) {
+  stopSpeaking();
+  if (opts.audio && Platform.OS === "web" && typeof Audio !== "undefined") {
+    const el = new Audio(`data:${opts.audio.mime};base64,${opts.audio.base64}`);
+    currentAudio = el;
+    el.play().catch(() => {
+      // Navegador bloqueou o som automático: usa a voz do aparelho.
+      if (currentAudio === el) speakWithDevice(text, opts);
+    });
+    return;
+  }
+  speakWithDevice(text, opts);
+}
+
+function speakWithDevice(text: string, opts: SpeakOptions) {
+  const synth = webSynth();
+  if (synth) {
+    const u = new SpeechSynthesisUtterance(text);
+    const best = pickBestVoice(synth.getVoices());
+    if (best) u.voice = best;
+    u.lang = best?.lang ?? "en-US";
+    u.rate = speechRate(opts);
+    u.pitch = opts.kids ? 1.1 : 1.0;
+    synth.speak(u);
+    return;
+  }
+  Speech.speak(text, { language: "en-US", rate: speechRate(opts), pitch: opts.kids ? 1.1 : 1.0 });
 }
 
 export function stopSpeaking() {
+  currentAudio?.pause();
+  currentAudio = null;
+  webSynth()?.cancel();
   Speech.stop();
 }
+
+// Algumas vozes só aparecem depois do primeiro carregamento: pede a lista cedo.
+webSynth()?.getVoices();
 
 /* ---------------- Ouvir (aluno → tutor) ---------------- */
 

@@ -14,6 +14,12 @@ const Env = z.object({
   AI_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
   ANTHROPIC_API_KEY: z.string().optional(),
   AI_MODEL: z.string().default("claude-sonnet-5-5"),
+  // Voz natural do tutor. "none" = app usa a voz do aparelho.
+  TTS_PROVIDER: z.enum(["none", "openai"]).default("none"),
+  OPENAI_API_KEY: z.string().optional(),
+  TTS_MODEL: z.string().default("gpt-4o-mini-tts"),
+  TTS_VOICE: z.string().default("marin"),
+  TTS_VOICE_KIDS: z.string().default("coral"),
   DAILY_CONVERSATION_MINUTES_STUDENT: z.coerce.number().positive().default(15),
   DAILY_CONVERSATION_MINUTES_KIDS: z.coerce.number().positive().default(5),
   ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
@@ -31,6 +37,9 @@ export function loadEnv(raw: NodeJS.ProcessEnv = process.env) {
   const env = Env.parse(raw);
   if (env.AI_PROVIDER === "anthropic" && !env.ANTHROPIC_API_KEY) {
     throw new Error("AI_PROVIDER=anthropic exige ANTHROPIC_API_KEY");
+  }
+  if (env.TTS_PROVIDER === "openai" && !env.OPENAI_API_KEY) {
+    throw new Error("TTS_PROVIDER=openai exige OPENAI_API_KEY");
   }
   return env;
 }

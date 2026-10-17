@@ -1,4 +1,4 @@
-import { createProvider } from "@app/ai";
+import { createProvider, createSpeechProvider } from "@app/ai";
 import { buildApp } from "./app";
 import { loadEnv, toAppConfig } from "./config";
 import { supabaseTokenVerifier } from "./lib/auth";
@@ -9,6 +9,7 @@ const env = loadEnv();
 const app = await buildApp({
   repo: new SupabaseRepo(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, env.SUPABASE_SERVICE_ROLE_KEY),
   provider: createProvider(env),
+  speech: createSpeechProvider(env),
   verifyToken: supabaseTokenVerifier({ supabaseUrl: env.SUPABASE_URL, jwtSecret: env.SUPABASE_JWT_SECRET }),
   config: toAppConfig(env),
 });

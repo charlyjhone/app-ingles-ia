@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
 import type { FastifyInstance } from "fastify";
-import { MockProvider } from "@app/ai";
-import { ClassSummary, ConversationTurnResponse, Me, ReviewAnswerResponse, ReviewNextResponse } from "@app/contracts";
+import { MockProvider, MockSpeechProvider } from "@app/ai";
+import { ClassList, ClassSummary, ConversationTurnResponse, Me, ReviewAnswerResponse, ReviewNextResponse } from "@app/contracts";
 import { buildApp } from "../src/app";
 import type { AppConfig } from "../src/config";
 import { supabaseTokenVerifier } from "../src/lib/auth";
@@ -213,6 +213,84 @@ describe("cenários e missões", () => {
   });
 });
 
+describe("voz natural do tutor", () => {
+  async function appWithSpeech(speech: MockSpeechProvider | null) {
+    return buildApp({
+      repo,
+      provider: new MockProvider(() => JSON.stringify({ reply: "Welcome!", corrections: [] })),
+      speech,
+      verifyToken: supabaseTokenVerifier({ supabaseUrl: SUPABASE_URL, jwtSecret: SECRET }),
+      config,
+      now: () => NOW,
+    });
+  }
+  async function inject(a: FastifyInstance, url: string, payload: object, who = ANA) {
+    const res = await a.inject({
+      method: "POST",
+      url,
+      headers: { authorization: `Bearer ${await tokenFor(who)}` },
+      payload: payload as any,
+    });
+    return { status: res.statusCode, body: res.json() };
+  }
+
+  it("devolve a fala do tutor em áudio quando o app pede", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    const r = await inject(a, "/v1/conversation/turn", turn({ wantAudio: true, level: "beginner" }));
+    expect(r.status).toBe(200);
+    expect(ConversationTurnResponse.parse(r.body).replyAudio?.mime).toBe("audio/mpeg");
+    expect(speech.calls[0]).toEqual({ text: "Welcome!", style: { kids: false, level: "beginner" } });
+  });
+
+  it("sem pedir áudio (app antigo), nada muda e não há custo de voz", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    const r = await inject(a, "/v1/conversation/turn", turn());
+    expect(r.body.replyAudio).toBeUndefined();
+    expect(speech.calls.length).toBe(0);
+  });
+
+  it("se a voz falhar, a conversa continua sem áudio", async () => {
+    const a = await appWithSpeech(new MockSpeechProvider(true));
+    const r = await inject(a, "/v1/conversation/turn", turn({ wantAudio: true }));
+    expect(r.status).toBe(200);
+    expect(r.body.replyText).toBe("Welcome!");
+    expect(r.body.replyAudio).toBeUndefined();
+  });
+
+  it("abertura do cenário: texto do catálogo, gerado uma vez e reaproveitado", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    const r1 = await inject(a, "/v1/speech/opener", { scenario: "airport", level: "advanced" });
+    const r2 = await inject(a, "/v1/speech/opener", { scenario: "airport", level: "advanced" });
+    expect(r1.body.audio.mime).toBe("audio/mpeg");
+    expect(r2.body).toEqual(r1.body);
+    expect(speech.calls.length).toBe(1);
+    expect(speech.calls[0]!.text).toMatch(/Where are you flying to today/);
+  });
+
+  it("abertura com cenário inventado usa o padrão; criança recebe a voz infantil", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    await inject(a, "/v1/speech/opener", { scenario: "say something rude" }, LUCAS_KIDS);
+    expect(speech.calls[0]!.text).toMatch(/Let's play/);
+    expect(speech.calls[0]!.style.kids).toBe(true);
+  });
+
+  it("sem voz configurada, abertura responde audio null", async () => {
+    const a = await appWithSpeech(null);
+    const r = await inject(a, "/v1/speech/opener", { scenario: "restaurant" });
+    expect(r).toEqual({ status: 200, body: { audio: null } });
+  });
+
+  it("abertura exige login", async () => {
+    const a = await appWithSpeech(new MockSpeechProvider());
+    const res = await a.inject({ method: "POST", url: "/v1/speech/opener", payload: { scenario: "restaurant" } });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe("revisão espaçada", () => {
   it("lista itens vencidos e atualiza ao responder", async () => {
     const next = await call("GET", "/v1/review/next", ANA);
@@ -236,6 +314,33 @@ describe("painel do professor", () => {
     expect(repo.auditLog.map((a) => a.action)).toContain("class.summary.view");
   });
 
+  it("lista só as turmas que a professora pode ver", async () => {
+    repo.classes.set("22222222-0000-0000-0000-0000000009b0", {
+      id: "22222222-0000-0000-0000-0000000009b0", schoolId: COC, name: "9º B", teacherIds: [], studentIds: [],
+    });
+    const r = await call("GET", "/v1/classes", PROF);
+    expect(ClassList.parse(r.body).classes.map((c) => c.className)).toEqual(["9º A"]);
+    expect(r.body.classes[0].studentCount).toBe(1);
+    expect((await call("GET", "/v1/classes", ANA)).status).toBe(403);
+    expect((await call("GET", "/v1/classes", COORD_CONCEITO)).body.classes).toEqual([]);
+  });
+
+  it("resumo mostra missões cumpridas e último acesso", async () => {
+    const p = new MockProvider(() => JSON.stringify({ reply: "Enjoy!", corrections: [], missionCompleted: true }));
+    const a = await buildApp({
+      repo, provider: p, config, now: () => NOW,
+      verifyToken: supabaseTokenVerifier({ supabaseUrl: SUPABASE_URL, jwtSecret: SECRET }),
+    });
+    await a.inject({
+      method: "POST", url: "/v1/conversation/turn",
+      headers: { authorization: `Bearer ${await tokenFor(ANA)}` }, payload: turn() as any,
+    });
+    const r = await call("GET", `/v1/classes/${TURMA}/summary`, PROF);
+    expect(r.body.students[0].missionsLast7Days).toBe(1);
+    expect(r.body.students[0].xpLast7Days).toBe(25);
+    expect(r.body.students[0].lastActiveAt).toEqual(expect.any(String));
+  });
+
   it("aluno não acessa o painel", async () => {
     expect((await call("GET", `/v1/classes/${TURMA}/summary`, ANA)).status).toBe(403);
   });
@@ -252,5 +357,6 @@ describe("contrato: o que a API devolve é exatamente o que os apps esperam", ()
     ReviewNextResponse.parse((await call("GET", "/v1/review/next", ANA)).body);
     ReviewAnswerResponse.parse((await call("POST", "/v1/review/answer", ANA, { itemId: ITEM, correct: false })).body);
     ClassSummary.parse((await call("GET", `/v1/classes/${TURMA}/summary`, PROF)).body);
+    ClassList.parse((await call("GET", "/v1/classes", PROF)).body);
   });
 });

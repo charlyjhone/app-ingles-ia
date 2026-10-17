@@ -82,6 +82,16 @@ export const conversationRoutes =
         }
       }
 
+      // Voz natural: se falhar, a conversa segue normalmente (o app usa a voz do aparelho).
+      let replyAudio: ConversationTurnResponse["replyAudio"];
+      if (body.wantAudio && deps.speech) {
+        try {
+          replyAudio = await deps.speech.synthesize(result.replyText, { kids: variant === "kids", level: body.level });
+        } catch (e) {
+          req.log.warn({ detail: e instanceof Error ? e.message : String(e), provider: deps.speech.name }, "falha na voz do tutor");
+        }
+      }
+
       return {
         replyText: result.replyText,
         corrections: result.corrections,
@@ -90,6 +100,7 @@ export const conversationRoutes =
         promptVersion: result.promptVersion,
         missionCompleted: result.missionCompleted,
         xpAwarded,
+        ...(replyAudio ? { replyAudio } : {}),
       };
     });
   };

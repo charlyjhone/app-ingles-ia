@@ -1,4 +1,4 @@
-import type { ClassSummary, Me } from "@app/contracts";
+import type { ClassList, ClassSummary, Me } from "@app/contracts";
 import type { FlagRule } from "@app/flags";
 
 export interface StoredReviewItem {
@@ -33,6 +33,8 @@ export interface Repo {
   /** Já existe ponto com este motivo? (evita pagar a mesma missão duas vezes) */
   hasXpEvent(studentId: string, reason: string): Promise<boolean>;
 
+  /** Turmas visíveis ao solicitante (professor: as dele; coordenação: todas da escola). */
+  listClasses(requester: Me, accessToken: string): Promise<ClassList["classes"]>;
   /** Devolve null se o solicitante NÃO pode ver a turma (o banco também barra via RLS). */
   getClassSummary(classId: string, requester: Me, accessToken: string): Promise<ClassSummary | null>;
 

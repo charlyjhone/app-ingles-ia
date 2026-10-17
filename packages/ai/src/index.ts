@@ -11,6 +11,7 @@ import { SAFE_FALLBACK_REPLY, checkText } from "./safety";
 
 export * from "./prompts";
 export * from "./safety";
+export * from "./speech";
 
 export interface ProviderRequest {
   system: string;

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import type { ClassSummary } from "@app/contracts";
+import type { ClassList, ClassSummary } from "@app/contracts";
 import type { Deps } from "../app";
 import { HttpError } from "../lib/errors";
 
@@ -10,6 +10,11 @@ const STAFF = new Set(["teacher", "coordinator", "admin"]);
 export const teacherRoutes =
   (deps: Deps): FastifyPluginAsync =>
   async (app) => {
+    app.get("/classes", async (req): Promise<ClassList> => {
+      if (!STAFF.has(req.me.role)) throw new HttpError("forbidden", "Acesso restrito a professores e coordenação");
+      return { classes: await deps.repo.listClasses(req.me, req.accessToken) };
+    });
+
     app.get("/classes/:classId/summary", async (req): Promise<ClassSummary> => {
       if (!STAFF.has(req.me.role)) throw new HttpError("forbidden", "Acesso restrito a professores e coordenação");
       const { classId } = Params.parse(req.params);

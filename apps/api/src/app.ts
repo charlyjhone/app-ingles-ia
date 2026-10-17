@@ -4,18 +4,21 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { ZodError } from "zod";
 import type { Me } from "@app/contracts";
-import type { ConversationProvider } from "@app/ai";
+import type { ConversationProvider, SpeechProvider } from "@app/ai";
 import type { AppConfig } from "./config";
 import { bearer, type TokenVerifier } from "./lib/auth";
 import { HttpError, errorBody } from "./lib/errors";
 import type { Repo } from "./repo/types";
 import { conversationRoutes } from "./routes/conversation";
 import { reviewRoutes } from "./routes/review";
+import { speechRoutes } from "./routes/speech";
 import { teacherRoutes } from "./routes/teacher";
 
 export interface Deps {
   repo: Repo;
   provider: ConversationProvider;
+  /** voz natural do tutor; null/ausente = app usa a voz do aparelho */
+  speech?: SpeechProvider | null;
   verifyToken: TokenVerifier;
   config: AppConfig;
   now?: () => Date;
@@ -74,6 +77,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       v1.get("/me", async (req) => req.me);
       await v1.register(conversationRoutes(deps));
       await v1.register(reviewRoutes(deps));
+      await v1.register(speechRoutes(deps));
       await v1.register(teacherRoutes(deps));
     },
     { prefix: "/v1" },

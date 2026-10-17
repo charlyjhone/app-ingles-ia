@@ -31,6 +31,13 @@ export type Me = z.infer<typeof Me>;
 
 /* ---------- Conversa com IA ---------- */
 
+/** Áudio de voz natural gerado no servidor (mp3 em base64). */
+export const SpeechAudio = z.object({
+  mime: z.string(),
+  base64: z.string().max(4_000_000),
+});
+export type SpeechAudio = z.infer<typeof SpeechAudio>;
+
 export const ChatMessage = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string().min(1).max(2000),
@@ -46,6 +53,8 @@ export const ConversationTurnRequest = z.object({
   spokenSeconds: z.number().int().min(0).max(600).default(0),
   /** nível escolhido pelo aluno (adicionado depois da v1: opcional, padrão iniciante) */
   level: Level.default("beginner"),
+  /** pedir a fala do tutor em áudio de voz natural (opcional; padrão: não) */
+  wantAudio: z.boolean().default(false),
 });
 export type ConversationTurnRequest = z.infer<typeof ConversationTurnRequest>;
 
@@ -65,8 +74,20 @@ export const ConversationTurnResponse = z.object({
   /** adicionados depois da v1 (opcionais): missão do cenário cumprida e pontos ganhos neste turno */
   missionCompleted: z.boolean().optional(),
   xpAwarded: z.number().int().optional(),
+  /** fala do tutor em voz natural; ausente = o app usa a voz do aparelho */
+  replyAudio: SpeechAudio.optional(),
 });
 export type ConversationTurnResponse = z.infer<typeof ConversationTurnResponse>;
+
+/** Áudio da primeira fala do cenário (o texto vem do catálogo, nunca do aparelho). */
+export const SpeechOpenerRequest = z.object({
+  scenario: z.string().min(1).max(80),
+  level: Level.default("beginner"),
+});
+export type SpeechOpenerRequest = z.input<typeof SpeechOpenerRequest>;
+
+export const SpeechOpenerResponse = z.object({ audio: SpeechAudio.nullable() });
+export type SpeechOpenerResponse = z.infer<typeof SpeechOpenerResponse>;
 
 /* ---------- Revisão espaçada ---------- */
 
@@ -104,10 +125,26 @@ export const ClassSummary = z.object({
       xpLast7Days: z.number().int(),
       conversationMinutesLast7Days: z.number(),
       itemsDue: z.number().int(),
+      /** adicionados depois da v1 (opcionais) */
+      missionsLast7Days: z.number().int().optional(),
+      lastActiveAt: z.string().datetime().nullable().optional(),
     }),
   ),
 });
 export type ClassSummary = z.infer<typeof ClassSummary>;
+
+/** Turmas que o professor (ou a coordenação) pode ver. */
+export const ClassList = z.object({
+  classes: z.array(
+    z.object({
+      classId: z.string().uuid(),
+      className: z.string(),
+      grade: z.string().nullable(),
+      studentCount: z.number().int(),
+    }),
+  ),
+});
+export type ClassList = z.infer<typeof ClassList>;
 
 /* ---------- Erros padronizados ---------- */
 

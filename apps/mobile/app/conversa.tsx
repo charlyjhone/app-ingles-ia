@@ -10,6 +10,7 @@ import {
   getScenario,
   type ChatMessage,
   type Correction,
+  type SpeechAudio,
 } from "@app/contracts";
 import { ENV } from "../src/env";
 import { api } from "../src/services";
@@ -40,6 +41,8 @@ export default function Conversa() {
   // A primeira fala do tutor aparece na tela; o servidor já sabe dela (não vai no histórico enviado).
   const opener: ChatMessage = { role: "assistant", text: scenario.openerEn };
   const [history, setHistory] = useState<ChatMessage[]>([opener]);
+  // Áudio de voz natural de cada fala do tutor (índice da mensagem → áudio), para repetir sem novo custo.
+  const audios = useRef(new Map<number, SpeechAudio>()).current;
   const [missionDone, setMissionDone] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [corrections, setCorrections] = useState<Correction[]>([]);
@@ -52,8 +55,19 @@ export default function Conversa() {
 
   // Ao abrir: o tutor fala a primeira frase. Ao sair: para de ouvir e de falar.
   useEffect(() => {
-    const t = setTimeout(() => speak(scenario.openerEn, voice), 400);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    api
+      .speechOpener({ scenario: scenario.id, level })
+      .then((r) => r.audio)
+      .catch(() => null)
+      .then((audio) => {
+        if (cancelled) return;
+        if (audio) audios.set(0, audio);
+        speak(scenario.openerEn, { ...voice, audio });
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(
@@ -79,11 +93,14 @@ export default function Conversa() {
         history: history.slice(1).slice(-20),
         userText: clean,
         spokenSeconds,
+        wantAudio: autoSpeak,
       });
+      // índice da nova fala do tutor = mensagens atuais + a fala do aluno
+      if (r.replyAudio) audios.set(history.length + 1, r.replyAudio);
       setHistory((h) => [...h, { role: "assistant", text: r.replyText }]);
       setCorrections(r.corrections);
       setText("");
-      if (autoSpeak) speak(r.replyText, voice);
+      if (autoSpeak) speak(r.replyText, { ...voice, audio: r.replyAudio });
       if (r.missionCompleted && !missionDone) {
         setMissionDone(true);
         if ((r.xpAwarded ?? 0) >= MISSION_XP) setCelebrate(true);
@@ -176,9 +193,9 @@ export default function Conversa() {
           </Text>
           )
         }
-        renderItem={({ item }) =>
+        renderItem={({ item, index }) =>
           item.role === "assistant" ? (
-            <Pressable onPress={() => speak(item.text, voice)} accessibilityHint="Toque para ouvir de novo">
+            <Pressable onPress={() => speak(item.text, { ...voice, audio: audios.get(index) })} accessibilityHint="Toque para ouvir de novo">
               <Text style={[styles.bubble, styles.bot]}>
                 {item.text} <Text style={styles.replay}>🔊</Text>
               </Text>

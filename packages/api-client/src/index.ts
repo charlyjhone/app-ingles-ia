@@ -6,12 +6,15 @@
 import type { z } from "zod";
 import {
   ApiError,
+  ClassList,
   ClassSummary,
   ConversationTurnResponse,
   Me,
   ReviewAnswerResponse,
   ReviewNextResponse,
+  SpeechOpenerResponse,
   type ConversationTurnRequest,
+  type SpeechOpenerRequest,
   type ReviewAnswerRequest,
 } from "@app/contracts";
 
@@ -69,8 +72,10 @@ export function createApiClient({ baseUrl, getAccessToken, fetchImpl = fetch }: 
     me: () => request(Me, "GET", "/me"),
     conversationTurn: (body: ConversationTurnRequest) =>
       request(ConversationTurnResponse, "POST", "/conversation/turn", body),
+    speechOpener: (body: SpeechOpenerRequest) => request(SpeechOpenerResponse, "POST", "/speech/opener", body),
     reviewNext: () => request(ReviewNextResponse, "GET", "/review/next"),
     reviewAnswer: (body: ReviewAnswerRequest) => request(ReviewAnswerResponse, "POST", "/review/answer", body),
+    classes: () => request(ClassList, "GET", "/classes"),
     classSummary: (classId: string) => request(ClassSummary, "GET", `/classes/${encodeURIComponent(classId)}/summary`),
   };
 }

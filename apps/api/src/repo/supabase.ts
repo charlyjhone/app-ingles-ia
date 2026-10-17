@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { ClassSummary, Me } from "@app/contracts";
+import type { ClassList, ClassSummary, Me } from "@app/contracts";
 import { pickDue } from "@app/srs";
 import type { Repo, StoredReviewItem } from "./types";
 
@@ -117,6 +117,20 @@ export class SupabaseRepo implements Repo {
     return (count ?? 0) > 0;
   }
 
+  async listClasses(_requester: Me, accessToken: string): Promise<ClassList["classes"]> {
+    const db = this.asUser(accessToken); // RLS: professor vê só as turmas dele; coordenação, as da escola
+    const { data, error } = await db.from("classes").select("id, name, grade, class_members(member_role)").order("name");
+    if (error) throw error;
+    return (data ?? []).map((c) => ({
+      classId: c.id as string,
+      className: c.name as string,
+      grade: (c.grade as string | null) ?? null,
+      studentCount: ((c.class_members as Array<{ member_role: string }> | null) ?? []).filter(
+        (m) => m.member_role === "student",
+      ).length,
+    }));
+  }
+
   async getClassSummary(classId: string, _requester: Me, accessToken: string): Promise<ClassSummary | null> {
     const db = this.asUser(accessToken); // RLS aplicada
     const { data: cls } = await db.from("classes").select("id, name").eq("id", classId).maybeSingle();
@@ -132,7 +146,7 @@ export class SupabaseRepo implements Repo {
     const ids = (members ?? []).map((m) => m.profile_id as string);
     const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
     const [xp, usage, items] = await Promise.all([
-      db.from("xp_events").select("student_id, amount").in("student_id", ids).gte("created_at", since),
+      db.from("xp_events").select("student_id, amount, reason, created_at").in("student_id", ids).gte("created_at", since),
       db.from("conversation_usage").select("student_id, seconds").in("student_id", ids).gte("created_at", since),
       db.from("review_items").select("*").in("student_id", ids),
     ]);
@@ -152,6 +166,13 @@ export class SupabaseRepo implements Repo {
           conversationMinutesLast7Days:
             (usage.data ?? []).filter((u) => u.student_id === id).reduce((s, u) => s + u.seconds, 0) / 60,
           itemsDue: pickDue((items.data ?? []).filter((i) => i.student_id === id).map(toReviewItem), now, 1000).length,
+          missionsLast7Days: (xp.data ?? []).filter((x) => x.student_id === id && String(x.reason).startsWith("mission:")).length,
+          lastActiveAt:
+            (xp.data ?? [])
+              .filter((x) => x.student_id === id)
+              .map((x) => new Date(x.created_at as string).toISOString())
+              .sort()
+              .at(-1) ?? null,
         };
       }),
     };

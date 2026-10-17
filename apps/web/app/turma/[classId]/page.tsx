@@ -3,6 +3,16 @@ import { serverApi } from "../../../lib/server";
 
 export const dynamic = "force-dynamic";
 
+const DAY = 86_400_000;
+
+function lastActiveLabel(iso: string | null | undefined, now: number) {
+  if (!iso) return { text: "Nunca praticou", alert: true };
+  const days = Math.floor((now - new Date(iso).getTime()) / DAY);
+  if (days <= 0) return { text: "Hoje", alert: false };
+  if (days === 1) return { text: "Ontem", alert: false };
+  return { text: `Há ${days} dias`, alert: days >= 3 };
+}
+
 export default async function TurmaPage({ params }: { params: Promise<{ classId: string }> }) {
   const { classId } = await params;
   const api = await serverApi();
@@ -15,29 +25,75 @@ export default async function TurmaPage({ params }: { params: Promise<{ classId:
     return <p role="alert">{msg}</p>;
   }
 
+  const now = Date.now();
+  const students = [...summary.students].sort((a, b) => b.xpLast7Days - a.xpLast7Days);
+  const active = students.filter((s) => !lastActiveLabel(s.lastActiveAt, now).alert).length;
+  const missions = students.reduce((n, s) => n + (s.missionsLast7Days ?? 0), 0);
+  const minutes = students.reduce((n, s) => n + s.conversationMinutesLast7Days, 0);
+
   return (
     <section>
-      <h1 style={{ fontSize: 22 }}>{summary.className}</h1>
-      <table style={{ width: "100%", borderCollapse: "collapse", background: "#FFF" }}>
-        <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #DDD" }}>
-            <th style={{ padding: 8 }}>Aluno</th>
-            <th style={{ padding: 8 }}>XP (7 dias)</th>
-            <th style={{ padding: 8 }}>Minutos de conversa (7 dias)</th>
-            <th style={{ padding: 8 }}>Palavras para revisar</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.students.map((s) => (
-            <tr key={s.studentId} style={{ borderBottom: "1px solid #F0F0F0" }}>
-              <td style={{ padding: 8 }}>{s.fullName}</td>
-              <td style={{ padding: 8 }}>{s.xpLast7Days}</td>
-              <td style={{ padding: 8 }}>{s.conversationMinutesLast7Days.toFixed(1)}</td>
-              <td style={{ padding: 8 }}>{s.itemsDue}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <a href="/" style={{ color: "#2F5BEA", textDecoration: "none" }}>← Suas turmas</a>
+      <h1 style={{ fontSize: 24, margin: "8px 0 4px" }}>{summary.className}</h1>
+      <p style={{ color: "#666", marginTop: 0 }}>Últimos 7 dias</p>
+
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", margin: "16px 0" }}>
+        <Stat label="Alunos ativos" value={`${active} de ${students.length}`} />
+        <Stat label="Missões cumpridas" value={String(missions)} />
+        <Stat label="Minutos de conversa" value={minutes.toFixed(0)} />
+      </div>
+
+      {students.length === 0 ? (
+        <p style={{ background: "#FFF", padding: 16, borderRadius: 12 }}>Nenhum aluno nesta turma ainda.</p>
+      ) : (
+        <div style={{ overflowX: "auto", background: "#FFF", borderRadius: 12, border: "1px solid #E5E5E0" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #DDD", color: "#555", fontSize: 14 }}>
+                <th style={th}>Aluno</th>
+                <th style={th}>Pontos</th>
+                <th style={th}>Missões</th>
+                <th style={th}>Minutos falando</th>
+                <th style={th}>Palavras p/ revisar</th>
+                <th style={th}>Último acesso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s) => {
+                const last = lastActiveLabel(s.lastActiveAt, now);
+                return (
+                  <tr key={s.studentId} style={{ borderBottom: "1px solid #F0F0F0" }}>
+                    <td style={td}>{s.fullName}</td>
+                    <td style={td}>{s.xpLast7Days}</td>
+                    <td style={td}>{s.missionsLast7Days ?? 0}</td>
+                    <td style={td}>{s.conversationMinutesLast7Days.toFixed(1)}</td>
+                    <td style={td}>{s.itemsDue}</td>
+                    <td style={{ ...td, color: last.alert ? "#B00020" : "inherit", fontWeight: last.alert ? 600 : 400 }}>
+                      {last.alert ? "⚠️ " : ""}
+                      {last.text}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p style={{ color: "#666", fontSize: 13, marginTop: 12 }}>
+        ⚠️ = aluno sem praticar há 3 dias ou mais: vale um incentivo em sala.
+      </p>
     </section>
   );
 }
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: "#FFF", borderRadius: 12, padding: 16, border: "1px solid #E5E5E0" }}>
+      <div style={{ color: "#666", fontSize: 14 }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+const th: React.CSSProperties = { padding: "10px 12px", fontWeight: 600 };
+const td: React.CSSProperties = { padding: "10px 12px" };

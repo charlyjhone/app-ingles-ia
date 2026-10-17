@@ -30,3 +30,19 @@ describe("speechRate", () => {
     expect(speechRate({ level: "advanced" })).toBe(1.0);
   });
 });
+
+describe("pickBestVoice", () => {
+  it("prefere vozes naturais/neurais em inglês e evita as robóticas", async () => {
+    const { pickBestVoice } = await import("./voice");
+    const voices = [
+      { name: "Fred", lang: "en-US" },
+      { name: "Zarvox", lang: "en-US" },
+      { name: "Luciana", lang: "pt-BR" },
+      { name: "Microsoft Aria Online (Natural) - English (United States)", lang: "en-US" },
+      { name: "Google UK English Female", lang: "en-GB" },
+    ];
+    expect(pickBestVoice(voices)?.name).toMatch(/Aria Online \(Natural\)/);
+    expect(pickBestVoice(voices.filter((v) => !/Aria/.test(v.name)))?.name).toBe("Google UK English Female");
+    expect(pickBestVoice([{ name: "Luciana", lang: "pt-BR" }])).toBeNull();
+  });
+});
