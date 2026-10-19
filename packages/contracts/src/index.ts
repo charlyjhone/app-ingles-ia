@@ -55,8 +55,12 @@ export const ConversationTurnRequest = z.object({
   level: Level.default("beginner"),
   /** pedir a fala do tutor em áudio de voz natural (opcional; padrão: não) */
   wantAudio: z.boolean().default(false),
+  /** resposta rápida: devolve o texto já e um vale para buscar a voz em seguida (/speech/reply) */
+  wantSpeechToken: z.boolean().default(false),
 });
 export type ConversationTurnRequest = z.infer<typeof ConversationTurnRequest>;
+/** o que o app envia (campos com padrão podem ser omitidos) */
+export type ConversationTurnInput = z.input<typeof ConversationTurnRequest>;
 
 export const Correction = z.object({
   original: z.string(),
@@ -76,6 +80,8 @@ export const ConversationTurnResponse = z.object({
   xpAwarded: z.number().int().optional(),
   /** fala do tutor em voz natural; ausente = o app usa a voz do aparelho */
   replyAudio: SpeechAudio.optional(),
+  /** vale para buscar a voz natural desta fala em /v1/speech/reply */
+  speechToken: z.string().optional(),
 });
 export type ConversationTurnResponse = z.infer<typeof ConversationTurnResponse>;
 
@@ -85,6 +91,10 @@ export const SpeechOpenerRequest = z.object({
   level: Level.default("beginner"),
 });
 export type SpeechOpenerRequest = z.input<typeof SpeechOpenerRequest>;
+
+/** Voz de uma fala do tutor, a partir do vale recebido na conversa. */
+export const SpeechReplyRequest = z.object({ token: z.string().min(10).max(12_000) });
+export type SpeechReplyRequest = z.infer<typeof SpeechReplyRequest>;
 
 export const SpeechOpenerResponse = z.object({ audio: SpeechAudio.nullable() });
 export type SpeechOpenerResponse = z.infer<typeof SpeechOpenerResponse>;

@@ -92,6 +92,12 @@ export const conversationRoutes =
         }
       }
 
+      // Resposta rápida: o texto vai já; a voz é buscada em seguida com este vale.
+      const speechToken =
+        body.wantSpeechToken && !body.wantAudio && deps.speech
+          ? deps.speechTokens!.issue({ text: result.replyText, studentId: me.id, kids: variant === "kids", level: body.level }, now.getTime())
+          : undefined;
+
       return {
         replyText: result.replyText,
         corrections: result.corrections,
@@ -101,6 +107,7 @@ export const conversationRoutes =
         missionCompleted: result.missionCompleted,
         xpAwarded,
         ...(replyAudio ? { replyAudio } : {}),
+        ...(speechToken ? { speechToken } : {}),
       };
     });
   };

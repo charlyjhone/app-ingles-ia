@@ -44,6 +44,11 @@ export default function Conversa() {
   const [history, setHistory] = useState<ChatMessage[]>([opener]);
   // Áudio de voz natural de cada fala do tutor (índice da mensagem → áudio), para repetir sem novo custo.
   const audios = useRef(new Map<number, SpeechAudio>()).current;
+  // Vale para buscar a voz de cada fala (resposta rápida: o texto aparece antes da voz).
+  const tokens = useRef(new Map<number, string>()).current;
+  // Se o aluno começar a falar enquanto a voz ainda chega, a voz atrasada não toca por cima.
+  const voiceGen = useRef(0);
+  const [voicePending, setVoicePending] = useState(false);
   const [missionDone, setMissionDone] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [tapToHear, setTapToHear] = useState(false);
@@ -96,14 +101,16 @@ export default function Conversa() {
         history: history.slice(1).slice(-20),
         userText: clean,
         spokenSeconds,
-        wantAudio: autoSpeak,
+        wantSpeechToken: true,
       });
       // índice da nova fala do tutor = mensagens atuais + a fala do aluno
-      if (r.replyAudio) audios.set(history.length + 1, r.replyAudio);
+      const idx = history.length + 1;
+      if (r.replyAudio) audios.set(idx, r.replyAudio);
+      if (r.speechToken) tokens.set(idx, r.speechToken);
       setHistory((h) => [...h, { role: "assistant", text: r.replyText }]);
       setCorrections(r.corrections);
       setText("");
-      if (autoSpeak) speak(r.replyText, { ...voice, audio: r.replyAudio }).then(onSpoken);
+      if (autoSpeak) void sayMessage(idx, r.replyText);
       if (r.missionCompleted && !missionDone) {
         setMissionDone(true);
         if ((r.xpAwarded ?? 0) >= MISSION_XP) setCelebrate(true);
@@ -118,12 +125,32 @@ export default function Conversa() {
     }
   }
 
+  /** Fala uma mensagem do tutor: usa o áudio guardado, ou busca a voz natural pelo vale. */
+  async function sayMessage(idx: number, msgText: string) {
+    const gen = ++voiceGen.current;
+    let audio = audios.get(idx) ?? null;
+    const token = tokens.get(idx);
+    if (!audio && token) {
+      setVoicePending(true);
+      audio = await api
+        .speechReply({ token })
+        .then((x) => x.audio)
+        .catch(() => null);
+      if (gen === voiceGen.current) setVoicePending(false);
+      if (audio) audios.set(idx, audio);
+    }
+    if (gen !== voiceGen.current) return; // o aluno já seguiu em frente
+    onSpoken(await speak(msgText, { ...voice, audio }));
+  }
+
   async function toggleMic() {
     if (phase === "listening") {
       listenRef.current?.stop(); // termina e envia
       return;
     }
     if (phase !== "idle") return;
+    voiceGen.current++; // cancela voz que ainda estava chegando
+    setVoicePending(false);
     stopSpeaking(); // não ouvir a própria voz do tutor
     setStatus(null);
     setPartial("");
@@ -198,7 +225,7 @@ export default function Conversa() {
         }
         renderItem={({ item, index }) =>
           item.role === "assistant" ? (
-            <Pressable onPress={() => speak(item.text, { ...voice, audio: audios.get(index) }).then(onSpoken)} accessibilityHint="Toque para ouvir de novo">
+            <Pressable onPress={() => void sayMessage(index, item.text)} accessibilityHint="Toque para ouvir de novo">
               <Text style={[styles.bubble, styles.bot]}>
                 {item.text} <Text style={styles.replay}>🔊</Text>
               </Text>
@@ -217,6 +244,7 @@ export default function Conversa() {
 
       {listening && <Text style={styles.partial}>{partial ? `"${partial}"` : "Ouvindo… fale em inglês"}</Text>}
       {sending && <Text style={styles.partial}>O tutor está pensando…</Text>}
+      {voicePending && !sending && <Text style={styles.partial}>🔊 Preparando a voz…</Text>}
       {tapToHear && <Text style={styles.partial}>🔊 Toque na fala do tutor para ouvir</Text>}
       {status && (
         <Text style={styles.status} accessibilityRole="alert">

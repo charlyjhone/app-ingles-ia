@@ -13,8 +13,9 @@ import {
   ReviewAnswerResponse,
   ReviewNextResponse,
   SpeechOpenerResponse,
-  type ConversationTurnRequest,
+  type ConversationTurnInput,
   type SpeechOpenerRequest,
+  type SpeechReplyRequest,
   type ReviewAnswerRequest,
 } from "@app/contracts";
 
@@ -70,8 +71,9 @@ export function createApiClient({ baseUrl, getAccessToken, fetchImpl = fetch }: 
 
   return {
     me: () => request(Me, "GET", "/me"),
-    conversationTurn: (body: ConversationTurnRequest) =>
+    conversationTurn: (body: ConversationTurnInput) =>
       request(ConversationTurnResponse, "POST", "/conversation/turn", body),
+    speechReply: (body: SpeechReplyRequest) => request(SpeechOpenerResponse, "POST", "/speech/reply", body),
     speechOpener: (body: SpeechOpenerRequest) => request(SpeechOpenerResponse, "POST", "/speech/opener", body),
     reviewNext: () => request(ReviewNextResponse, "GET", "/review/next"),
     reviewAnswer: (body: ReviewAnswerRequest) => request(ReviewAnswerResponse, "POST", "/review/answer", body),

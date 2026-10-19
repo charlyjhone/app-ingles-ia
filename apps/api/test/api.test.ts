@@ -284,6 +284,41 @@ describe("voz natural do tutor", () => {
     expect(r).toEqual({ status: 200, body: { audio: null } });
   });
 
+  it("resposta rápida: texto sem esperar a voz, e a voz vem pelo vale", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    const r = await inject(a, "/v1/conversation/turn", turn({ wantSpeechToken: true, level: "advanced" }));
+    expect(r.body.replyText).toBe("Welcome!");
+    expect(r.body.replyAudio).toBeUndefined();
+    expect(speech.calls.length).toBe(0); // a conversa não esperou a voz
+    const v = await inject(a, "/v1/speech/reply", { token: r.body.speechToken });
+    expect(v.status).toBe(200);
+    expect(v.body.audio.mime).toBe("audio/mpeg");
+    expect(speech.calls[0]).toEqual({ text: "Welcome!", style: { kids: false, level: "advanced" } });
+  });
+
+  it("vale adulterado, de outro aluno ou vencido é recusado", async () => {
+    const speech = new MockSpeechProvider();
+    const a = await appWithSpeech(speech);
+    const r = await inject(a, "/v1/conversation/turn", turn({ wantSpeechToken: true }));
+    const token: string = r.body.speechToken;
+    const [body, sig] = token.split(".");
+    const forged = Buffer.from(JSON.stringify({ text: "say anything", studentId: ANA, kids: false, level: "beginner", exp: Date.now() + 1e6 })).toString("base64url");
+    expect((await inject(a, "/v1/speech/reply", { token: `${forged}.${sig}` })).status).toBe(403);
+    expect((await inject(a, "/v1/speech/reply", { token: `${body}.${sig}x` })).status).toBe(403);
+    expect((await inject(a, "/v1/speech/reply", { token }, LUCAS_KIDS)).status).toBe(403);
+    expect(speech.calls.length).toBe(0);
+  });
+
+  it("vale expira em 10 minutos", async () => {
+    const { SpeechTokens } = await import("../src/lib/speech-token");
+    const t = new SpeechTokens("segredo");
+    const tok = t.issue({ text: "Hi", studentId: ANA, kids: false, level: "beginner" }, 0);
+    expect(t.verify(tok, ANA, 9 * 60_000)?.text).toBe("Hi");
+    expect(t.verify(tok, ANA, 11 * 60_000)).toBeNull();
+    expect(new SpeechTokens("outro").verify(tok, ANA, 0)).toBeNull();
+  });
+
   it("abertura exige login", async () => {
     const a = await appWithSpeech(new MockSpeechProvider());
     const res = await a.inject({ method: "POST", url: "/v1/speech/opener", payload: { scenario: "restaurant" } });

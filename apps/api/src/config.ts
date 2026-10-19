@@ -31,6 +31,8 @@ export type AppConfig = {
   allowedOrigins: string[];
   timeZone: string;
   version: string;
+  /** segredo para assinar os vales de voz (derivado de uma chave que só o servidor tem) */
+  speechSecret?: string;
 };
 
 export function loadEnv(raw: NodeJS.ProcessEnv = process.env) {
@@ -51,5 +53,6 @@ export function toAppConfig(env: ReturnType<typeof loadEnv>): AppConfig {
     allowedOrigins: env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()),
     timeZone: "America/Sao_Paulo",
     version: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? "dev",
+    speechSecret: env.SUPABASE_SERVICE_ROLE_KEY,
   };
 }

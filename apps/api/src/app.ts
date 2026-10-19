@@ -7,6 +7,7 @@ import type { Me } from "@app/contracts";
 import type { ConversationProvider, SpeechProvider } from "@app/ai";
 import type { AppConfig } from "./config";
 import { bearer, type TokenVerifier } from "./lib/auth";
+import { SpeechTokens } from "./lib/speech-token";
 import { HttpError, errorBody } from "./lib/errors";
 import type { Repo } from "./repo/types";
 import { conversationRoutes } from "./routes/conversation";
@@ -22,6 +23,8 @@ export interface Deps {
   verifyToken: TokenVerifier;
   config: AppConfig;
   now?: () => Date;
+  /** criado automaticamente a partir da config */
+  speechTokens?: SpeechTokens;
 }
 
 declare module "fastify" {
@@ -32,6 +35,7 @@ declare module "fastify" {
 }
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
+  deps.speechTokens ??= new SpeechTokens(deps.config.speechSecret);
   const app = Fastify({
     logger: process.env.NODE_ENV === "test" ? false : { redact: ["req.headers.authorization"] },
     bodyLimit: 64 * 1024,
