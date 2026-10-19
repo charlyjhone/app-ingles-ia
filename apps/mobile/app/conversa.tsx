@@ -21,6 +21,7 @@ import {
   speak,
   stopSpeaking,
   type ListenSession,
+  type SpeakResult,
 } from "../src/voice";
 
 const newId = () =>
@@ -45,6 +46,8 @@ export default function Conversa() {
   const audios = useRef(new Map<number, SpeechAudio>()).current;
   const [missionDone, setMissionDone] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [tapToHear, setTapToHear] = useState(false);
+  const onSpoken = (r: SpeakResult) => setTapToHear(r === "blocked");
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [text, setText] = useState("");
   const [partial, setPartial] = useState("");
@@ -63,7 +66,7 @@ export default function Conversa() {
       .then((audio) => {
         if (cancelled) return;
         if (audio) audios.set(0, audio);
-        speak(scenario.openerEn, { ...voice, audio });
+        speak(scenario.openerEn, { ...voice, audio }).then(onSpoken);
       });
     return () => {
       cancelled = true;
@@ -100,7 +103,7 @@ export default function Conversa() {
       setHistory((h) => [...h, { role: "assistant", text: r.replyText }]);
       setCorrections(r.corrections);
       setText("");
-      if (autoSpeak) speak(r.replyText, { ...voice, audio: r.replyAudio });
+      if (autoSpeak) speak(r.replyText, { ...voice, audio: r.replyAudio }).then(onSpoken);
       if (r.missionCompleted && !missionDone) {
         setMissionDone(true);
         if ((r.xpAwarded ?? 0) >= MISSION_XP) setCelebrate(true);
@@ -195,7 +198,7 @@ export default function Conversa() {
         }
         renderItem={({ item, index }) =>
           item.role === "assistant" ? (
-            <Pressable onPress={() => speak(item.text, { ...voice, audio: audios.get(index) })} accessibilityHint="Toque para ouvir de novo">
+            <Pressable onPress={() => speak(item.text, { ...voice, audio: audios.get(index) }).then(onSpoken)} accessibilityHint="Toque para ouvir de novo">
               <Text style={[styles.bubble, styles.bot]}>
                 {item.text} <Text style={styles.replay}>🔊</Text>
               </Text>
@@ -214,6 +217,7 @@ export default function Conversa() {
 
       {listening && <Text style={styles.partial}>{partial ? `"${partial}"` : "Ouvindo… fale em inglês"}</Text>}
       {sending && <Text style={styles.partial}>O tutor está pensando…</Text>}
+      {tapToHear && <Text style={styles.partial}>🔊 Toque na fala do tutor para ouvir</Text>}
       {status && (
         <Text style={styles.status} accessibilityRole="alert">
           {status}

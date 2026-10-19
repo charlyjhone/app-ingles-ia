@@ -68,19 +68,72 @@ function webSynth(): SpeechSynthesis | null {
   return window.speechSynthesis;
 }
 
-/** Fala o texto: voz natural do servidor se houver; senão, a melhor voz do aparelho. */
-export function speak(text: string, opts: SpeakOptions = {}) {
-  stopSpeaking();
-  if (opts.audio && Platform.OS === "web" && typeof Audio !== "undefined") {
-    const el = new Audio(`data:${opts.audio.mime};base64,${opts.audio.base64}`);
-    currentAudio = el;
-    el.play().catch(() => {
-      // Navegador bloqueou o som automático: usa a voz do aparelho.
-      if (currentAudio === el) speakWithDevice(text, opts);
+/* ----- Tocador único da voz natural -----
+ * Safari (Mac/iPhone) e alguns Chromes só deixam tocar som se o "tocador" foi liberado por
+ * um toque/clique do usuário. Por isso usamos UM tocador para o app todo e o liberamos no
+ * primeiro toque em qualquer lugar (ex.: ao escolher a situação). Depois disso, as falas do
+ * tutor que chegam alguns segundos mais tarde tocam normalmente. */
+const SILENCE = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let player: HTMLAudioElement | null = null;
+let unlocked = false;
+
+function getPlayer(): HTMLAudioElement | null {
+  if (Platform.OS !== "web" || typeof Audio === "undefined") return null;
+  if (!player) {
+    player = new Audio();
+    player.preload = "auto";
+    (player as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+  }
+  return player;
+}
+
+/** Libera o som. Chamar dentro de um toque/clique (já é feito automaticamente no 1º toque). */
+export function unlockAudio() {
+  const el = getPlayer();
+  if (!el || unlocked) return;
+  el.src = SILENCE;
+  el.play()
+    .then(() => {
+      unlocked = true;
+    })
+    .catch(() => {
+      /* tenta de novo no próximo toque */
     });
-    return;
+}
+
+if (Platform.OS === "web" && typeof document !== "undefined") {
+  const onGesture = () => {
+    unlockAudio();
+    if (unlocked) {
+      for (const ev of ["pointerdown", "touchend", "keydown"]) document.removeEventListener(ev, onGesture, true);
+    }
+  };
+  for (const ev of ["pointerdown", "touchend", "keydown"]) document.addEventListener(ev, onGesture, true);
+}
+
+/** Qual voz tocou: natural (servidor), do aparelho, ou bloqueada pelo navegador (precisa de um toque). */
+export type SpeakResult = "natural" | "device" | "blocked";
+
+/** Fala o texto: voz natural do servidor se houver; senão, a melhor voz do aparelho. */
+export async function speak(text: string, opts: SpeakOptions = {}): Promise<SpeakResult> {
+  stopSpeaking();
+  const el = opts.audio ? getPlayer() : null;
+  if (el && opts.audio) {
+    el.src = `data:${opts.audio.mime};base64,${opts.audio.base64}`;
+    currentAudio = el;
+    try {
+      await el.play();
+      unlocked = true;
+      return "natural";
+    } catch (e) {
+      // Navegador bloqueou o som automático. NÃO caímos na voz robótica:
+      // a tela pede um toque na fala, e aí toca a voz natural.
+      console.warn("[voz] reprodução bloqueada pelo navegador", e);
+      return "blocked";
+    }
   }
   speakWithDevice(text, opts);
+  return "device";
 }
 
 function speakWithDevice(text: string, opts: SpeakOptions) {
@@ -100,6 +153,7 @@ function speakWithDevice(text: string, opts: SpeakOptions) {
 
 export function stopSpeaking() {
   currentAudio?.pause();
+  if (player) player.currentTime = 0;
   currentAudio = null;
   webSynth()?.cancel();
   Speech.stop();
