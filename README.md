@@ -9,6 +9,7 @@ Conversa por voz com IA (estilo BeConfident) + hábito e gamificação (estilo D
 - `docs/02-decisao-comercial-duolingo-vs-beconfident.md` — qual modelo seguir e por quê
 - `docs/03-arquitetura.md` — como o sistema é organizado
 - `docs/MUDANCAS-SEGURAS.md` — **leia antes de mudar qualquer coisa**
+- `docs/04-status-e-proximos-passos.md` — o que já funciona, endereços e pendências
 
 ## Estrutura
 
