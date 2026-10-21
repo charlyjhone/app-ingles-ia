@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
 import type { FastifyInstance } from "fastify";
 import { MockProvider, MockSpeechProvider } from "@app/ai";
-import { ClassList, ClassSummary, ConversationTurnResponse, Me, ReviewAnswerResponse, ReviewNextResponse } from "@app/contracts";
+import { ClassList, ClassSummary, ConversationTurnResponse, ProgressResponse, Me, ReviewAnswerResponse, ReviewNextResponse } from "@app/contracts";
 import { buildApp } from "../src/app";
 import type { AppConfig } from "../src/config";
 import { supabaseTokenVerifier } from "../src/lib/auth";
@@ -60,6 +60,7 @@ const turn = (extra: Record<string, unknown> = {}) => ({
 
 beforeEach(async () => {
   repo = new InMemoryRepo();
+  repo.clock = () => NOW;
   repo.users.set(ANA, { id: ANA, schoolId: COC, role: "student", fullName: "Ana Souza", kidsMode: false });
   repo.users.set(LUCAS_KIDS, { id: LUCAS_KIDS, schoolId: COC, role: "student", fullName: "Lucas", kidsMode: true });
   repo.users.set(PROF, { id: PROF, schoolId: COC, role: "teacher", fullName: "Carla", kidsMode: false });
@@ -323,6 +324,159 @@ describe("voz natural do tutor", () => {
     const a = await appWithSpeech(new MockSpeechProvider());
     const res = await a.inject({ method: "POST", url: "/v1/speech/opener", payload: { scenario: "restaurant" } });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("palavras da conversa vão para a revisão", () => {
+  async function appReplying(out: object) {
+    return buildApp({
+      repo, config, now: () => NOW,
+      provider: new MockProvider(() => JSON.stringify(out)),
+      verifyToken: supabaseTokenVerifier({ supabaseUrl: SUPABASE_URL, jwtSecret: SECRET }),
+    });
+  }
+  async function post(a: FastifyInstance, who = ANA) {
+    const res = await a.inject({
+      method: "POST", url: "/v1/conversation/turn",
+      headers: { authorization: `Bearer ${await tokenFor(who)}` }, payload: turn() as any,
+    });
+    return res.json();
+  }
+
+  it("cria itens novos e não repete palavra que o aluno já tem", async () => {
+    const a = await appReplying({
+      reply: "Sure!", corrections: [],
+      newWords: [{ term: "Apple", translationPt: "maçã" }, { term: "the bill", translationPt: "a conta" }],
+    });
+    const r = await post(a);
+    expect(r.newWordsAdded).toEqual(["the bill"]); // "apple" já existia
+    const terms = [...repo.reviewItems.values()].filter((i) => i.studentId === ANA).map((i) => i.term);
+    expect(terms.sort()).toEqual(["apple", "the bill"]);
+    const item = [...repo.reviewItems.values()].find((i) => i.term === "the bill")!;
+    expect(item.halfLifeHours).toBe(12);
+    expect(item.schoolId).toBe(COC);
+  });
+
+  it("se salvar as palavras falhar, a conversa continua normalmente", async () => {
+    const a = await appReplying({ reply: "Sure!", corrections: [], newWords: [{ term: "menu", translationPt: "cardápio" }] });
+    repo.addReviewItem = async () => {
+      throw new Error("banco fora do ar");
+    };
+    const r = await post(a);
+    expect(r.replyText).toBe("Sure!");
+    expect(r.newWordsAdded).toBeUndefined();
+  });
+});
+
+describe("autorização do responsável (LGPD)", () => {
+  const COORD_COC = "11111111-0000-0000-0000-000000000007";
+  beforeEach(() => {
+    repo.users.set(COORD_COC, { id: COORD_COC, schoolId: COC, role: "coordinator", fullName: "Rita", kidsMode: false });
+  });
+
+  it("interruptor desligado (padrão): conversa normal sem autorização", async () => {
+    expect((await call("POST", "/v1/conversation/turn", ANA, turn())).status).toBe(200);
+  });
+
+  it("interruptor ligado na escola: sem autorização não conversa; com autorização, conversa", async () => {
+    repo.flags.push({ key: "privacy.require_guardian_consent", enabled: true, schoolId: COC });
+    const blocked = await call("POST", "/v1/conversation/turn", ANA, turn());
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error.message).toMatch(/autorização/);
+
+    const r = await call("POST", `/v1/students/${ANA}/consent`, COORD_COC, { given: true });
+    expect(r.status).toBe(200);
+    expect(r.body.guardianConsentAt).toBe(NOW.toISOString());
+    expect(repo.auditLog.map((a) => a.action)).toContain("guardian_consent.recorded");
+    expect((await call("POST", "/v1/conversation/turn", ANA, turn())).status).toBe(200);
+  });
+
+  it("só a coordenação da própria escola registra", async () => {
+    expect((await call("POST", `/v1/students/${ANA}/consent`, PROF, { given: true })).status).toBe(403);
+    expect((await call("POST", `/v1/students/${ANA}/consent`, ANA, { given: true })).status).toBe(403);
+    expect((await call("POST", `/v1/students/${ANA}/consent`, COORD_CONCEITO, { given: true })).status).toBe(404);
+    expect(repo.users.get(ANA)?.guardianConsentAt).toBeUndefined();
+  });
+
+  it("painel mostra a situação da autorização", async () => {
+    await call("POST", `/v1/students/${ANA}/consent`, COORD_COC, { given: true });
+    const r = await call("GET", `/v1/classes/${TURMA}/summary`, PROF);
+    expect(r.body.students[0].guardianConsentAt).toBe(NOW.toISOString());
+    await call("POST", `/v1/students/${ANA}/consent`, COORD_COC, { given: false });
+    expect((await call("GET", `/v1/classes/${TURMA}/summary`, PROF)).body.students[0].guardianConsentAt).toBeNull();
+  });
+});
+
+describe("importação de alunos pela coordenação", () => {
+  const COORD_COC = "11111111-0000-0000-0000-000000000007";
+  beforeEach(() => {
+    repo.users.set(COORD_COC, { id: COORD_COC, schoolId: COC, role: "coordinator", fullName: "Rita", kidsMode: false });
+  });
+  const rows = [
+    { fullName: "Ana Júlia Souza", className: "9º A" },
+    { fullName: "Pedro Lima", className: "8º B", grade: "8º ano" },
+    { fullName: "Lia", className: "Infantil 2", kidsMode: true },
+  ];
+
+  it("cria logins, senhas provisórias e só as turmas que faltam", async () => {
+    const r = await call("POST", "/v1/import/students", COORD_COC, { rows });
+    expect(r.status).toBe(200);
+    expect(r.body.failed).toEqual([]);
+    expect(r.body.classesCreated.sort()).toEqual(["8º B", "Infantil 2"]); // "9º A" já existia
+    expect(r.body.created).toHaveLength(3);
+    const ana = r.body.created[0];
+    expect(ana.login).toMatch(/^ana\.souza\.\d{4}@aluno\.appingles\.com$/);
+    expect(ana.temporaryPassword).toMatch(/^[A-Za-z2-9]{10}$/);
+    // Ana foi para a turma existente; Lia é do modo infantil
+    expect(repo.classes.get(TURMA)!.studentIds).toHaveLength(2);
+    const lia = [...repo.users.values()].find((u) => u.fullName === "Lia")!;
+    expect(lia.kidsMode).toBe(true);
+    expect(lia.schoolId).toBe(COC);
+  });
+
+  it("auditoria registra a importação sem nenhuma senha", async () => {
+    await call("POST", "/v1/import/students", COORD_COC, { rows });
+    const entry = repo.auditLog.find((a) => a.action === "students.imported")!;
+    expect(JSON.stringify(entry)).not.toMatch(/temporaryPassword|password/i);
+  });
+
+  it("um aluno com problema não impede os outros", async () => {
+    const original = repo.createStudentAccount.bind(repo);
+    repo.createStudentAccount = async (e) => {
+      if (e.fullName === "Pedro Lima") throw new Error("falhou");
+      return original(e);
+    };
+    const r = await call("POST", "/v1/import/students", COORD_COC, { rows });
+    expect(r.body.created.map((c: { fullName: string }) => c.fullName)).toEqual(["Ana Júlia Souza", "Lia"]);
+    expect(r.body.failed).toEqual([{ fullName: "Pedro Lima", reason: expect.any(String) }]);
+  });
+
+  it("professor e aluno não importam", async () => {
+    expect((await call("POST", "/v1/import/students", PROF, { rows })).status).toBe(403);
+    expect((await call("POST", "/v1/import/students", ANA, { rows })).status).toBe(403);
+  });
+
+  it("planilha vazia ou grande demais é recusada", async () => {
+    expect((await call("POST", "/v1/import/students", COORD_COC, { rows: [] })).status).toBe(400);
+    const many = Array.from({ length: 201 }, (_, i) => ({ fullName: `Aluno ${i}`, className: "X" }));
+    expect((await call("POST", "/v1/import/students", COORD_COC, { rows: many })).status).toBe(400);
+  });
+});
+
+describe("progresso do aluno", () => {
+  it("conversar dá pontos de hoje e começa a sequência", async () => {
+    await call("POST", "/v1/conversation/turn", ANA, turn());
+    const r = await call("GET", "/v1/me/progress", ANA);
+    expect(r.status).toBe(200);
+    const p = ProgressResponse.parse(r.body);
+    expect(p.xpToday).toBe(5);
+    expect(p.streakDays).toBe(1);
+    expect(p.reviewsDue).toBe(1);
+  });
+
+  it("cada aluno vê só o próprio progresso", async () => {
+    await call("POST", "/v1/conversation/turn", ANA, turn());
+    expect((await call("GET", "/v1/me/progress", LUCAS_KIDS)).body.xpToday).toBe(0);
   });
 });
 

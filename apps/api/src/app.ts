@@ -11,6 +11,8 @@ import { SpeechTokens } from "./lib/speech-token";
 import { HttpError, errorBody } from "./lib/errors";
 import type { Repo } from "./repo/types";
 import { conversationRoutes } from "./routes/conversation";
+import { importRoutes } from "./routes/import";
+import { progressRoutes } from "./routes/progress";
 import { reviewRoutes } from "./routes/review";
 import { speechRoutes } from "./routes/speech";
 import { teacherRoutes } from "./routes/teacher";
@@ -79,10 +81,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       });
 
       v1.get("/me", async (req) => req.me);
+      await v1.register(progressRoutes(deps));
       await v1.register(conversationRoutes(deps));
       await v1.register(reviewRoutes(deps));
       await v1.register(speechRoutes(deps));
       await v1.register(teacherRoutes(deps));
+      await v1.register(importRoutes(deps));
     },
     { prefix: "/v1" },
   );

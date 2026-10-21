@@ -30,12 +30,19 @@ export class SupabaseRepo implements Repo {
   async getMe(userId: string): Promise<Me | null> {
     const { data, error } = await this.admin
       .from("profiles")
-      .select("id, school_id, role, full_name, kids_mode")
+      .select("id, school_id, role, full_name, kids_mode, guardian_consent_at")
       .eq("id", userId)
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
-    return { id: data.id, schoolId: data.school_id, role: data.role, fullName: data.full_name, kidsMode: data.kids_mode };
+    return {
+      id: data.id,
+      schoolId: data.school_id,
+      role: data.role,
+      fullName: data.full_name,
+      kidsMode: data.kids_mode,
+      guardianConsentAt: data.guardian_consent_at ? new Date(data.guardian_consent_at).toISOString() : null,
+    };
   }
 
   async getClassIds(userId: string) {
@@ -100,11 +107,35 @@ export class SupabaseRepo implements Repo {
     if (error) throw error;
   }
 
+  async addReviewItem(item: Omit<StoredReviewItem, "id">) {
+    const { error } = await this.admin.from("review_items").insert({
+      student_id: item.studentId,
+      school_id: item.schoolId,
+      term: item.term,
+      translation_pt: item.translationPt,
+      half_life_hours: item.halfLifeHours,
+      last_seen_at: item.lastSeenAt.toISOString(),
+    });
+    if (error) throw error;
+  }
+
   async addXp(e: { studentId: string; schoolId: string; amount: number; reason: string }) {
     const { error } = await this.admin
       .from("xp_events")
       .insert({ student_id: e.studentId, school_id: e.schoolId, amount: e.amount, reason: e.reason });
     if (error) throw error;
+  }
+
+  async listXpSince(studentId: string, since: Date) {
+    const { data, error } = await this.admin
+      .from("xp_events")
+      .select("amount, created_at")
+      .eq("student_id", studentId)
+      .gte("created_at", since.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) throw error;
+    return (data ?? []).map((r) => ({ amount: r.amount as number, at: new Date(r.created_at as string) }));
   }
 
   async hasXpEvent(studentId: string, reason: string) {
@@ -138,7 +169,7 @@ export class SupabaseRepo implements Repo {
 
     const { data: members, error } = await db
       .from("class_members")
-      .select("profile_id, profiles(full_name)")
+      .select("profile_id, profiles(full_name, guardian_consent_at)")
       .eq("class_id", classId)
       .eq("member_role", "student");
     if (error) throw error;
@@ -158,10 +189,11 @@ export class SupabaseRepo implements Repo {
       className: cls.name,
       students: (members ?? []).map((m) => {
         const id = m.profile_id as string;
-        const profile = m.profiles as unknown as { full_name: string } | null;
+        const profile = m.profiles as unknown as { full_name: string; guardian_consent_at: string | null } | null;
         return {
           studentId: id,
           fullName: profile?.full_name ?? "",
+          guardianConsentAt: profile?.guardian_consent_at ? new Date(profile.guardian_consent_at).toISOString() : null,
           xpLast7Days: (xp.data ?? []).filter((x) => x.student_id === id).reduce((s, x) => s + x.amount, 0),
           conversationMinutesLast7Days:
             (usage.data ?? []).filter((u) => u.student_id === id).reduce((s, u) => s + u.seconds, 0) / 60,
@@ -176,6 +208,63 @@ export class SupabaseRepo implements Repo {
         };
       }),
     };
+  }
+
+  async findOrCreateClass(e: { schoolId: string; name: string; grade?: string }) {
+    const { data: found, error } = await this.admin
+      .from("classes")
+      .select("id")
+      .eq("school_id", e.schoolId)
+      .ilike("name", e.name.replace(/[%_\\]/g, (c) => `\\${c}`))
+      .limit(1);
+    if (error) throw error;
+    if (found && found[0]) return { id: found[0].id as string, created: false };
+    const { data, error: insErr } = await this.admin
+      .from("classes")
+      .insert({ school_id: e.schoolId, name: e.name, grade: e.grade ?? null })
+      .select("id")
+      .single();
+    if (insErr) throw insErr;
+    return { id: data.id as string, created: true };
+  }
+
+  async createStudentAccount(e: { schoolId: string; fullName: string; kidsMode: boolean; login: string; password: string }) {
+    const { data, error } = await this.admin.auth.admin.createUser({
+      email: e.login,
+      password: e.password,
+      email_confirm: true,
+      user_metadata: { full_name: e.fullName },
+    });
+    if (error || !data.user) throw error ?? new Error("falha ao criar login");
+    const id = data.user.id;
+    const { error: profErr } = await this.admin
+      .from("profiles")
+      .insert({ id, school_id: e.schoolId, role: "student", full_name: e.fullName, kids_mode: e.kidsMode });
+    if (profErr) {
+      // desfaz o login criado para não deixar conta "órfã" sem perfil
+      await this.admin.auth.admin.deleteUser(id).catch(() => undefined);
+      throw profErr;
+    }
+    return id;
+  }
+
+  async addClassMember(e: { classId: string; profileId: string; role: "student" | "teacher" }) {
+    const { error } = await this.admin
+      .from("class_members")
+      .upsert({ class_id: e.classId, profile_id: e.profileId, member_role: e.role }, { onConflict: "class_id,profile_id" });
+    if (error) throw error;
+  }
+
+  async setGuardianConsent(e: { studentId: string; schoolId: string; byId: string; at: Date | null }) {
+    const { data, error } = await this.admin
+      .from("profiles")
+      .update({ guardian_consent_at: e.at ? e.at.toISOString() : null, guardian_consent_by: e.at ? e.byId : null })
+      .eq("id", e.studentId)
+      .eq("school_id", e.schoolId)
+      .eq("role", "student")
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length > 0;
   }
 
   async audit(e: { actorId: string; schoolId: string; action: string; details?: Record<string, unknown> }) {

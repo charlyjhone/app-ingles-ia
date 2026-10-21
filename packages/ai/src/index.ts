@@ -7,7 +7,7 @@
 import { z } from "zod";
 import type { AppVariant, ChatMessage, Correction, Level } from "@app/contracts";
 import { CURRENT_PROMPT, type PromptVersion } from "./prompts";
-import { SAFE_FALLBACK_REPLY, checkText } from "./safety";
+import { SAFE_FALLBACK_REPLY, checkText, redactPII } from "./safety";
 
 export * from "./prompts";
 export * from "./safety";
@@ -104,6 +104,10 @@ const ModelOutput = z.object({
     .array(z.object({ original: z.string(), suggestion: z.string(), explanationPt: z.string() }))
     .default([]),
   missionCompleted: z.boolean().default(false),
+  newWords: z
+    .array(z.object({ term: z.string(), translationPt: z.string() }))
+    .default([])
+    .catch([]),
 });
 
 export interface TutorTurnInput {
@@ -124,6 +128,8 @@ export interface TutorTurnResult {
   promptVersion: string;
   blocked: boolean;
   missionCompleted: boolean;
+  /** palavras para a revisão espaçada (já limpas e limitadas) */
+  newWords: Array<{ term: string; translationPt: string }>;
 }
 
 /** Chamado quando a IA falha, para registrar o motivo nos logs do servidor. */
@@ -141,6 +147,7 @@ export async function tutorTurn(
     promptVersion: prompt.id,
     blocked,
     missionCompleted: false,
+    newWords: [],
   });
 
   const inbound = checkText(input.userText, input.variant);
@@ -150,7 +157,8 @@ export async function tutorTurn(
   try {
     raw = await provider.complete({
       system: prompt.build(input),
-      history: input.history,
+      // o histórico vem do aparelho: também sai daqui sem dados pessoais
+      history: input.history.map((m) => ({ ...m, text: redactPII(m.text) })),
       userText: inbound.text,
     });
   } catch (e) {
@@ -175,7 +183,26 @@ export async function tutorTurn(
     blocked: false,
     // Sem missão no cenário, nunca conta como cumprida (mesmo que o modelo diga que sim).
     missionCompleted: Boolean(input.missionEn) && parsed.missionCompleted,
+    newWords: input.variant === "kids" ? [] : cleanNewWords(parsed.newWords, input.variant),
   };
+}
+
+/** Só palavras curtas, sem duplicar, aprovadas pelo filtro de segurança; no máximo 2. */
+function cleanNewWords(words: Array<{ term: string; translationPt: string }>, variant: TutorTurnInput["variant"]) {
+  const seen = new Set<string>();
+  const out: Array<{ term: string; translationPt: string }> = [];
+  for (const w of words) {
+    const term = w.term.trim().replace(/\s+/g, " ");
+    const translationPt = w.translationPt.trim().replace(/\s+/g, " ");
+    const key = term.toLowerCase();
+    if (!term || !translationPt || term.length > 40 || translationPt.length > 60) continue;
+    if (term.split(" ").length > 4 || seen.has(key)) continue;
+    if (!checkText(term, variant).allowed || !checkText(translationPt, variant).allowed) continue;
+    seen.add(key);
+    out.push({ term, translationPt });
+    if (out.length === 2) break;
+  }
+  return out;
 }
 
 function parseModelOutput(raw: string): z.infer<typeof ModelOutput> | null {
@@ -194,7 +221,7 @@ function parseModelOutput(raw: string): z.infer<typeof ModelOutput> | null {
   if (!m) return null;
   try {
     const reply = JSON.parse(`"${m[1]}"`) as string;
-    return reply.trim() ? { reply, corrections: [], missionCompleted: false } : null;
+    return reply.trim() ? { reply, corrections: [], missionCompleted: false, newWords: [] } : null;
   } catch {
     return null;
   }

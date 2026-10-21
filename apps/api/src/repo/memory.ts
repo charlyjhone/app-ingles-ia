@@ -15,6 +15,8 @@ export class InMemoryRepo implements Repo {
   reviewItems = new Map<string, StoredReviewItem>();
   xp: Array<{ studentId: string; amount: number; reason: string; at: Date }> = [];
   auditLog: Array<{ actorId: string; action: string }> = [];
+  /** relógio dos registros (nos testes, o mesmo relógio falso do app) */
+  clock: () => Date = () => new Date();
 
   async getMe(userId: string) {
     return this.users.get(userId) ?? null;
@@ -43,8 +45,15 @@ export class InMemoryRepo implements Repo {
   async updateReviewItem(item: StoredReviewItem) {
     this.reviewItems.set(item.id, item);
   }
+  async addReviewItem(item: Omit<StoredReviewItem, "id">) {
+    const id = crypto.randomUUID();
+    this.reviewItems.set(id, { ...item, id });
+  }
   async addXp(e: { studentId: string; amount: number; reason: string }) {
-    this.xp.push({ ...e, at: new Date() });
+    this.xp.push({ ...e, at: this.clock() });
+  }
+  async listXpSince(studentId: string, since: Date) {
+    return this.xp.filter((x) => x.studentId === studentId && x.at >= since).map((x) => ({ amount: x.amount, at: x.at }));
   }
   async hasXpEvent(studentId: string, reason: string) {
     return this.xp.some((x) => x.studentId === studentId && x.reason === reason);
@@ -79,10 +88,40 @@ export class InMemoryRepo implements Repo {
           missionsLast7Days: this.xp.filter(
             (x) => x.studentId === id && x.reason.startsWith("mission:") && x.at.getTime() >= weekAgo,
           ).length,
+          guardianConsentAt: this.users.get(id)?.guardianConsentAt ?? null,
           lastActiveAt: lastAt(this.xp.filter((x) => x.studentId === id).map((x) => x.at)),
         })),
       ),
     };
+  }
+  logins = new Map<string, string>(); // login → id (só para testes)
+  async findOrCreateClass(e: { schoolId: string; name: string; grade?: string }) {
+    const found = [...this.classes.values()].find(
+      (c) => c.schoolId === e.schoolId && c.name.toLowerCase() === e.name.toLowerCase(),
+    );
+    if (found) return { id: found.id, created: false };
+    const id = crypto.randomUUID();
+    this.classes.set(id, { id, schoolId: e.schoolId, name: e.name, grade: e.grade ?? null, teacherIds: [], studentIds: [] });
+    return { id, created: true };
+  }
+  async createStudentAccount(e: { schoolId: string; fullName: string; kidsMode: boolean; login: string; password: string }) {
+    if (this.logins.has(e.login)) throw new Error("login já existe");
+    const id = crypto.randomUUID();
+    this.logins.set(e.login, id);
+    this.users.set(id, { id, schoolId: e.schoolId, role: "student", fullName: e.fullName, kidsMode: e.kidsMode });
+    return id;
+  }
+  async addClassMember(e: { classId: string; profileId: string; role: "student" | "teacher" }) {
+    const c = this.classes.get(e.classId);
+    if (!c) throw new Error("turma não existe");
+    const list = e.role === "student" ? c.studentIds : c.teacherIds;
+    if (!list.includes(e.profileId)) list.push(e.profileId);
+  }
+  async setGuardianConsent(e: { studentId: string; schoolId: string; byId: string; at: Date | null }) {
+    const u = this.users.get(e.studentId);
+    if (!u || u.schoolId !== e.schoolId || u.role !== "student") return false;
+    this.users.set(e.studentId, { ...u, guardianConsentAt: e.at ? e.at.toISOString() : null });
+    return true;
   }
   async audit(e: { actorId: string; action: string }) {
     this.auditLog.push(e);

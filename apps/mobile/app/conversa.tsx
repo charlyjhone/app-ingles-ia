@@ -52,6 +52,7 @@ export default function Conversa() {
   const [missionDone, setMissionDone] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [tapToHear, setTapToHear] = useState(false);
+  const [newWords, setNewWords] = useState<string[]>([]);
   const onSpoken = (r: SpeakResult) => setTapToHear(r === "blocked");
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [text, setText] = useState("");
@@ -109,6 +110,7 @@ export default function Conversa() {
       if (r.speechToken) tokens.set(idx, r.speechToken);
       setHistory((h) => [...h, { role: "assistant", text: r.replyText }]);
       setCorrections(r.corrections);
+      setNewWords(r.newWordsAdded ?? []);
       setText("");
       if (autoSpeak) void sayMessage(idx, r.replyText);
       if (r.missionCompleted && !missionDone) {
@@ -242,6 +244,10 @@ export default function Conversa() {
         </Text>
       ))}
 
+      {!kids && newWords.length > 0 && (
+        <Text style={styles.newWords}>📚 Para revisar depois: {newWords.join(", ")}</Text>
+      )}
+
       {listening && <Text style={styles.partial}>{partial ? `"${partial}"` : "Ouvindo… fale em inglês"}</Text>}
       {sending && <Text style={styles.partial}>O tutor está pensando…</Text>}
       {voicePending && !sending && <Text style={styles.partial}>🔊 Preparando a voz…</Text>}
@@ -304,6 +310,7 @@ const styles = StyleSheet.create({
   bot: { alignSelf: "flex-start", backgroundColor: "#F1F1F1" },
   replay: { fontSize: 13 },
   correction: { color: "#7A4B00", backgroundColor: "#FFF4D6", padding: 8, borderRadius: 8, marginTop: 6 },
+  newWords: { color: "#2E5E2E", backgroundColor: "#E8F5E9", padding: 8, borderRadius: 8, marginTop: 6 },
   partial: { color: "#2F5BEA", marginTop: 8, fontStyle: "italic" },
   status: { color: "#B00020", marginTop: 6 },
   hint: { color: "#666666", marginTop: 6, fontSize: 13 },

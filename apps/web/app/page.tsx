@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const api = await serverApi();
   let classes;
+  let me;
   try {
-    classes = (await api.classes()).classes;
+    [classes, me] = await Promise.all([api.classes().then((r) => r.classes), api.me()]);
   } catch (e) {
     const msg = e instanceof ApiClientError ? e.message : "Não foi possível carregar suas turmas.";
     return <p role="alert">{msg}</p>;
@@ -17,6 +18,13 @@ export default async function Home() {
     <section>
       <h1 style={{ fontSize: 24, marginBottom: 4 }}>Suas turmas</h1>
       <p style={{ color: "#666", marginTop: 0 }}>Escolha uma turma para ver o progresso dos alunos.</p>
+      {(me.role === "coordinator" || me.role === "admin") && (
+        <p>
+          <a href="/importar" style={{ color: "#2F5BEA", fontWeight: 600 }}>
+            ➕ Importar alunos de uma planilha
+          </a>
+        </p>
+      )}
       {classes.length === 0 ? (
         <p style={{ background: "#FFF", padding: 16, borderRadius: 12 }}>
           Nenhuma turma vinculada a você ainda. Peça à coordenação para incluir você em uma turma.

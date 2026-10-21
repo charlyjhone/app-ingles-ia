@@ -8,12 +8,17 @@ import {
   ApiError,
   ClassList,
   ClassSummary,
+  GuardianConsentResponse,
+  ImportStudentsResponse,
   ConversationTurnResponse,
   Me,
+  ProgressResponse,
   ReviewAnswerResponse,
   ReviewNextResponse,
   SpeechOpenerResponse,
   type ConversationTurnInput,
+  type GuardianConsentRequest,
+  type ImportStudentsRequest,
   type SpeechOpenerRequest,
   type SpeechReplyRequest,
   type ReviewAnswerRequest,
@@ -71,12 +76,16 @@ export function createApiClient({ baseUrl, getAccessToken, fetchImpl = fetch }: 
 
   return {
     me: () => request(Me, "GET", "/me"),
+    progress: () => request(ProgressResponse, "GET", "/me/progress"),
     conversationTurn: (body: ConversationTurnInput) =>
       request(ConversationTurnResponse, "POST", "/conversation/turn", body),
     speechReply: (body: SpeechReplyRequest) => request(SpeechOpenerResponse, "POST", "/speech/reply", body),
     speechOpener: (body: SpeechOpenerRequest) => request(SpeechOpenerResponse, "POST", "/speech/opener", body),
     reviewNext: () => request(ReviewNextResponse, "GET", "/review/next"),
     reviewAnswer: (body: ReviewAnswerRequest) => request(ReviewAnswerResponse, "POST", "/review/answer", body),
+    setGuardianConsent: (studentId: string, body: GuardianConsentRequest) =>
+      request(GuardianConsentResponse, "POST", `/students/${encodeURIComponent(studentId)}/consent`, body),
+    importStudents: (body: ImportStudentsRequest) => request(ImportStudentsResponse, "POST", "/import/students", body),
     classes: () => request(ClassList, "GET", "/classes"),
     classSummary: (classId: string) => request(ClassSummary, "GET", `/classes/${encodeURIComponent(classId)}/summary`),
   };

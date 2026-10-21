@@ -36,7 +36,7 @@ describe("tutorTurn", () => {
     const r = await tutorTurn(provider, { ...base, variant: "student", userText: "I want a hamburguer" });
     expect(r.replyText).toBe("Great choice!");
     expect(r.corrections).toHaveLength(1);
-    expect(r.promptVersion).toBe("conversation-v3");
+    expect(r.promptVersion).toBe("conversation-v4");
   });
 
   it("resposta cortada no meio (limite de tamanho) ainda aproveita a fala do tutor", async () => {
@@ -156,5 +156,70 @@ describe("seleção de provedor", () => {
       { role: "assistant", content: "Hi" },
       { role: "user", content: "Hello" },
     ]);
+  });
+});
+
+describe("v4: palavras novas para a revisão", () => {
+  const base = { variant: "student" as const, scenario: "No restaurante", studentName: "Ana", history: [], userText: "I want a pizza" };
+  const run = (out: object, variant: "student" | "kids" = "student") =>
+    tutorTurn(new MockProvider(() => JSON.stringify(out)), { ...base, variant });
+
+  it("é o prompt atual e pede newWords (mas não para crianças)", async () => {
+    const { CURRENT_PROMPT, PROMPT_V4 } = await import("./prompts");
+    expect(CURRENT_PROMPT.id).toBe("conversation-v4");
+    expect(PROMPT_V4.build({ ...base })).toMatch(/newWords/);
+    expect(PROMPT_V4.build({ ...base, variant: "kids" })).not.toMatch(/newWords/);
+  });
+
+  it("limpa, remove repetidas e longas, e limita a 2", async () => {
+    const r = await run({
+      reply: "Sure!",
+      corrections: [],
+      newWords: [
+        { term: "  I would like ", translationPt: "eu gostaria" },
+        { term: "i would like", translationPt: "repetida" },
+        { term: "this is a very long expression indeed", translationPt: "longa demais" },
+        { term: "the bill", translationPt: "a conta" },
+        { term: "menu", translationPt: "cardápio" },
+      ],
+    });
+    expect(r.newWords).toEqual([
+      { term: "I would like", translationPt: "eu gostaria" },
+      { term: "the bill", translationPt: "a conta" },
+    ]);
+  });
+
+  it("formato errado em newWords não derruba a resposta", async () => {
+    const r = await run({ reply: "Sure!", corrections: [], newWords: "oops" });
+    expect(r.replyText).toBe("Sure!");
+    expect(r.newWords).toEqual([]);
+  });
+
+  it("criança nunca recebe palavras (não há revisão no app infantil)", async () => {
+    const r = await run({ reply: "Yay!", corrections: [], newWords: [{ term: "dog", translationPt: "cachorro" }] }, "kids");
+    expect(r.newWords).toEqual([]);
+  });
+});
+
+describe("privacidade do histórico", () => {
+  it("dados pessoais das mensagens anteriores também são removidos antes de ir para a IA", async () => {
+    let sent: { history: Array<{ role: string; text: string }> } | null = null;
+    const provider = new MockProvider((req) => {
+      sent = req;
+      return JSON.stringify({ reply: "OK!", corrections: [] });
+    });
+    await tutorTurn(provider, {
+      variant: "student",
+      scenario: "x",
+      studentName: "Ana",
+      userText: "hi",
+      history: [
+        { role: "user", text: "my email is ana@escola.com and phone (96) 99123-4567" },
+        { role: "assistant", text: "Nice!" },
+      ],
+    });
+    expect(sent!.history[0]!.text).not.toMatch(/ana@escola|99123/);
+    expect(sent!.history[0]!.text).toMatch(/\[removido\]/);
+    expect(sent!.history[1]!.text).toBe("Nice!");
   });
 });

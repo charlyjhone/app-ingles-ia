@@ -26,6 +26,8 @@ export const Me = z.object({
   role: Role,
   fullName: z.string(),
   kidsMode: z.boolean(),
+  /** adicionado depois da v1 (opcional): quando a autorização do responsável foi registrada */
+  guardianConsentAt: z.string().datetime().nullable().optional(),
 });
 export type Me = z.infer<typeof Me>;
 
@@ -82,6 +84,8 @@ export const ConversationTurnResponse = z.object({
   replyAudio: SpeechAudio.optional(),
   /** vale para buscar a voz natural desta fala em /v1/speech/reply */
   speechToken: z.string().optional(),
+  /** palavras desta fala que entraram na revisão espaçada */
+  newWordsAdded: z.array(z.string()).optional(),
 });
 export type ConversationTurnResponse = z.infer<typeof ConversationTurnResponse>;
 
@@ -98,6 +102,18 @@ export type SpeechReplyRequest = z.infer<typeof SpeechReplyRequest>;
 
 export const SpeechOpenerResponse = z.object({ audio: SpeechAudio.nullable() });
 export type SpeechOpenerResponse = z.infer<typeof SpeechOpenerResponse>;
+
+/* ---------- Progresso do aluno (hábito) ---------- */
+
+export const ProgressResponse = z.object({
+  streakDays: z.number().int(),
+  xpToday: z.number().int(),
+  dailyGoal: z.number().int(),
+  goalReached: z.boolean(),
+  xpLast7Days: z.number().int(),
+  reviewsDue: z.number().int(),
+});
+export type ProgressResponse = z.infer<typeof ProgressResponse>;
 
 /* ---------- Revisão espaçada ---------- */
 
@@ -138,10 +154,48 @@ export const ClassSummary = z.object({
       /** adicionados depois da v1 (opcionais) */
       missionsLast7Days: z.number().int().optional(),
       lastActiveAt: z.string().datetime().nullable().optional(),
+      guardianConsentAt: z.string().datetime().nullable().optional(),
     }),
   ),
 });
 export type ClassSummary = z.infer<typeof ClassSummary>;
+
+/** Coordenação registra (ou retira) a autorização do responsável de um aluno. */
+export const GuardianConsentRequest = z.object({ given: z.boolean() });
+export type GuardianConsentRequest = z.infer<typeof GuardianConsentRequest>;
+export const GuardianConsentResponse = z.object({ guardianConsentAt: z.string().datetime().nullable() });
+export type GuardianConsentResponse = z.infer<typeof GuardianConsentResponse>;
+
+/** Importação de alunos pela coordenação (colada de uma planilha). */
+export const ImportStudentsRequest = z.object({
+  rows: z
+    .array(
+      z.object({
+        fullName: z.string().trim().min(2).max(120),
+        className: z.string().trim().min(1).max(60),
+        grade: z.string().trim().max(30).optional(),
+        kidsMode: z.boolean().default(false),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export type ImportStudentsRequest = z.input<typeof ImportStudentsRequest>;
+
+export const ImportStudentsResponse = z.object({
+  created: z.array(
+    z.object({
+      fullName: z.string(),
+      className: z.string(),
+      login: z.string(),
+      /** senha provisória: aparece UMA vez, para a coordenação entregar ao aluno */
+      temporaryPassword: z.string(),
+    }),
+  ),
+  failed: z.array(z.object({ fullName: z.string(), reason: z.string() })),
+  classesCreated: z.array(z.string()),
+});
+export type ImportStudentsResponse = z.infer<typeof ImportStudentsResponse>;
 
 /** Turmas que o professor (ou a coordenação) pode ver. */
 export const ClassList = z.object({

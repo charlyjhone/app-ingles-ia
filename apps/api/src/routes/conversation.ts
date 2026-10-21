@@ -9,6 +9,7 @@ import {
 } from "@app/contracts";
 import { CURRENT_PROMPT, tutorTurn } from "@app/ai";
 import { isEnabled } from "@app/flags";
+import { newItem } from "@app/srs";
 import type { Deps } from "../app";
 import { HttpError } from "../lib/errors";
 import { localDayKey } from "../lib/time";
@@ -25,9 +26,13 @@ export const conversationRoutes =
       const dayKey = localDayKey(now, deps.config.timeZone);
       const variant = me.kidsMode ? "kids" : "student";
 
+      const rules = await deps.repo.getFlagRules(me.schoolId);
+      const classIds = await deps.repo.getClassIds(me.id);
+      // LGPD: com o interruptor ligado na escola, só conversa quem tem autorização do responsável.
+      if (isEnabled("privacy.require_guardian_consent", rules, { schoolId: me.schoolId, classIds }) && !me.guardianConsentAt) {
+        throw new HttpError("forbidden", "Falta a autorização do seu responsável. Peça para ele assinar o termo na escola.");
+      }
       if (body.spokenSeconds > 0) {
-        const rules = await deps.repo.getFlagRules(me.schoolId);
-        const classIds = await deps.repo.getClassIds(me.id);
         if (!isEnabled("conversation.voice", rules, { schoolId: me.schoolId, classIds })) {
           throw new HttpError("feature_disabled", "Conversa por voz desativada para sua turma");
         }
@@ -82,6 +87,27 @@ export const conversationRoutes =
         }
       }
 
+      // Palavras novas → revisão espaçada (sem repetir as que o aluno já tem). Nunca derruba a conversa.
+      const newWordsAdded: string[] = [];
+      if (!result.blocked && result.newWords.length) {
+        try {
+          const existing = new Set((await deps.repo.listReviewItems(me.id)).map((i) => i.term.toLowerCase()));
+          for (const w of result.newWords) {
+            if (existing.has(w.term.toLowerCase())) continue;
+            await deps.repo.addReviewItem({
+              studentId: me.id,
+              schoolId: me.schoolId,
+              term: w.term,
+              translationPt: w.translationPt,
+              ...newItem(now),
+            });
+            newWordsAdded.push(w.term);
+          }
+        } catch (e) {
+          req.log.warn({ detail: e instanceof Error ? e.message : String(e) }, "falha ao salvar palavras para revisão");
+        }
+      }
+
       // Voz natural: se falhar, a conversa segue normalmente (o app usa a voz do aparelho).
       let replyAudio: ConversationTurnResponse["replyAudio"];
       if (body.wantAudio && deps.speech) {
@@ -108,6 +134,7 @@ export const conversationRoutes =
         xpAwarded,
         ...(replyAudio ? { replyAudio } : {}),
         ...(speechToken ? { speechToken } : {}),
+        ...(newWordsAdded.length ? { newWordsAdded } : {}),
       };
     });
   };

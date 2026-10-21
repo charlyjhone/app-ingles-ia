@@ -85,21 +85,46 @@ Responda SOMENTE com JSON válido neste formato:
 Se o aluno não errou nada, use "corrections": [].
 "missionCompleted" é true SOMENTE quando, somando toda a conversa, o aluno já cumpriu a missão inteira.`;
 
+function buildV3Body({ variant, scenario, studentName, level = "beginner", roleEn, missionEn, openerEn }: PromptInput) {
+  const role = roleEn ?? scenario;
+  const persona =
+    variant === "kids"
+      ? `Você é ${role}. Converse em inglês MUITO simples com uma criança de 2 a 5 anos chamada ${studentName}. Frases de no máximo 6 palavras. Muito incentivo. Sem correções formais: repita a forma certa com carinho.`
+      : `Você é ${role}. Você conversa com ${studentName}, aluno do ensino fundamental/médio que está aprendendo inglês. Fique no seu papel, de forma natural, e faça uma pergunta por vez.\n${LEVEL_GUIDE[level]}`;
+  const mission = missionEn
+    ? `Missão do aluno nesta conversa: ${missionEn}. Conduza a conversa para que ele consiga cumprir a missão, sem fazer por ele.`
+    : "Conversa livre: não há missão; use sempre \"missionCompleted\": false.";
+  const opener = openerEn ? `Você já abriu a conversa dizendo: "${openerEn}". Continue a partir daí.` : "";
+  return [persona, mission, opener, SAFETY_RULES, CONVERSATION_RULES];
+}
+
 export const PROMPT_V3: PromptVersion = {
   id: "conversation-v3",
-  build({ variant, scenario, studentName, level = "beginner", roleEn, missionEn, openerEn }) {
-    const role = roleEn ?? scenario;
-    const persona =
-      variant === "kids"
-        ? `Você é ${role}. Converse em inglês MUITO simples com uma criança de 2 a 5 anos chamada ${studentName}. Frases de no máximo 6 palavras. Muito incentivo. Sem correções formais: repita a forma certa com carinho.`
-        : `Você é ${role}. Você conversa com ${studentName}, aluno do ensino fundamental/médio que está aprendendo inglês. Fique no seu papel, de forma natural, e faça uma pergunta por vez.\n${LEVEL_GUIDE[level]}`;
-    const mission = missionEn
-      ? `Missão do aluno nesta conversa: ${missionEn}. Conduza a conversa para que ele consiga cumprir a missão, sem fazer por ele.`
-      : "Conversa livre: não há missão; use sempre \"missionCompleted\": false.";
-    const opener = openerEn ? `Você já abriu a conversa dizendo: "${openerEn}". Continue a partir daí.` : "";
-    return [persona, mission, opener, SAFETY_RULES, CONVERSATION_RULES, OUTPUT_RULES_V3].filter(Boolean).join("\n");
+  build(input) {
+    return [...buildV3Body(input), OUTPUT_RULES_V3].filter(Boolean).join("\n");
   },
 };
 
-export const PROMPTS = { [PROMPT_V1.id]: PROMPT_V1, [PROMPT_V2.id]: PROMPT_V2, [PROMPT_V3.id]: PROMPT_V3 } as const;
-export const CURRENT_PROMPT = PROMPT_V3;
+const OUTPUT_RULES_V4 = `
+Responda SOMENTE com JSON válido neste formato:
+{"reply": "<sua fala em inglês>", "corrections": [{"original": "...", "suggestion": "...", "explanationPt": "..."}], "missionCompleted": false, "newWords": [{"term": "...", "translationPt": "..."}]}
+Se o aluno não errou nada, use "corrections": [].
+"missionCompleted" é true SOMENTE quando, somando toda a conversa, o aluno já cumpriu a missão inteira.
+"newWords": no máximo 2 palavras ou expressões curtas em inglês (até 4 palavras) que valem a pena o aluno revisar depois — a forma certa de algo que ele errou, ou uma palavra nova útil que apareceu agora. Com tradução curta em português. Se não houver, use [].`;
+
+/** v4 = v3 + palavras novas para a revisão espaçada. */
+export const PROMPT_V4: PromptVersion = {
+  id: "conversation-v4",
+  build(input) {
+    const rules = input.variant === "kids" ? OUTPUT_RULES_V3 : OUTPUT_RULES_V4;
+    return [...buildV3Body(input), rules].filter(Boolean).join("\n");
+  },
+};
+
+export const PROMPTS = {
+  [PROMPT_V1.id]: PROMPT_V1,
+  [PROMPT_V2.id]: PROMPT_V2,
+  [PROMPT_V3.id]: PROMPT_V3,
+  [PROMPT_V4.id]: PROMPT_V4,
+} as const;
+export const CURRENT_PROMPT = PROMPT_V4;

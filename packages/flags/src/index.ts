@@ -12,6 +12,8 @@ export const FLAG_DEFAULTS = {
   "gamification.class_leagues": false,
   "kids.songs": true,
   "guardian.weekly_report": false,
+  /** LGPD: só conversa com a IA quem tem autorização do responsável registrada (ligar por escola) */
+  "privacy.require_guardian_consent": false,
 } as const;
 
 export type FlagKey = keyof typeof FLAG_DEFAULTS;

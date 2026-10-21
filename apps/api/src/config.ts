@@ -23,6 +23,8 @@ const Env = z.object({
   DAILY_CONVERSATION_MINUTES_STUDENT: z.coerce.number().positive().default(15),
   DAILY_CONVERSATION_MINUTES_KIDS: z.coerce.number().positive().default(5),
   ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
+  /** domínio dos logins criados na importação (ex.: ana.souza.4821@aluno.appingles.com) */
+  IMPORT_LOGIN_DOMAIN: z.string().default("aluno.appingles.com"),
 });
 
 export type AppConfig = {
@@ -33,6 +35,7 @@ export type AppConfig = {
   version: string;
   /** segredo para assinar os vales de voz (derivado de uma chave que só o servidor tem) */
   speechSecret?: string;
+  importLoginDomain?: string;
 };
 
 export function loadEnv(raw: NodeJS.ProcessEnv = process.env) {
@@ -54,5 +57,6 @@ export function toAppConfig(env: ReturnType<typeof loadEnv>): AppConfig {
     timeZone: "America/Sao_Paulo",
     version: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? "dev",
     speechSecret: env.SUPABASE_SERVICE_ROLE_KEY,
+    importLoginDomain: env.IMPORT_LOGIN_DOMAIN,
   };
 }

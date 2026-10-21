@@ -1,12 +1,14 @@
 import { Link } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ENV } from "../src/env";
+import { ProgressCard } from "../src/ProgressCard";
 
 export default function Home() {
   const kids = ENV.variant === "kids";
   return (
     <View style={styles.container}>
       <Text style={[styles.title, kids && styles.kidsTitle]}>{kids ? "Hello, friend!" : "Pronto para praticar?"}</Text>
+      <ProgressCard kids={kids} />
       <Link href="/cenarios" asChild>
         <Pressable style={StyleSheet.flatten([styles.button, kids && styles.kidsButton])} accessibilityRole="button">
           <Text style={styles.buttonText}>{kids ? "Falar com o amigo" : "Conversar com o tutor"}</Text>
